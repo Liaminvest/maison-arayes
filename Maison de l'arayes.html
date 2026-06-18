@@ -777,17 +777,17 @@
         <div class="fg-row fg">
           <div class="fg">
             <label>Prénom</label>
-            <input type="text" placeholder="Ahmed" />
+            <input type="text" id="prenom" placeholder="Ahmed" />
           </div>
           <div class="fg">
             <label>Nom</label>
-            <input type="text" placeholder="Benali" />
+            <input type="text" id="nom" placeholder="Benali" />
           </div>
         </div>
 
         <div class="fg">
           <label>Téléphone / WhatsApp</label>
-          <input type="tel" placeholder="+41 79 XXX XX XX" />
+          <input type="tel" id="telephone" placeholder="+41 79 XXX XX XX" />
         </div>
 
         <div class="qty-row">
@@ -825,7 +825,7 @@
 
         <div class="fg" id="adresse-fg">
           <label>Adresse complète</label>
-          <textarea placeholder="Rue, numéro, code postal, Genève"></textarea>
+          <textarea id="adresse" placeholder="Rue, numéro, code postal, Genève"></textarea>
         </div>
 
         <div class="fg">
@@ -838,8 +838,8 @@
           <div class="form-total-val" id="total-val">0 CHF</div>
         </div>
 
-        <button class="form-send" type="button">Envoyer ma commande</button>
-        <p class="form-note">Confirmation par SMS ou WhatsApp dans les minutes suivantes</p>
+        <button class="form-send" type="button" id="pay-btn">💳 Payer ma commande</button>
+        <p class="form-note">🔒 Paiement sécurisé par Stripe</p>
       </div>
     </div>
   </div>
@@ -921,6 +921,48 @@
   }
   qtyC.addEventListener('change', updateTotal);
   qtyS.addEventListener('change', updateTotal);
+
+  // Stripe checkout
+  const payBtn = document.getElementById('pay-btn');
+  payBtn.addEventListener('click', async () => {
+    const classique = parseInt(qtyC.value);
+    const epice = parseInt(qtyS.value);
+
+    if (classique === 0 && epice === 0) {
+      alert('Sélectionnez au moins un produit avant de payer.');
+      return;
+    }
+
+    const payload = {
+      classique,
+      epice,
+      nom: document.getElementById('nom').value + ' ' + document.getElementById('prenom').value,
+      telephone: document.getElementById('telephone').value,
+      mode: modeSelect.value,
+      adresse: document.getElementById('adresse').value
+    };
+
+    payBtn.disabled = true;
+    payBtn.textContent = 'Redirection...';
+
+    try {
+      const res = await fetch('/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('Pas d\'URL de paiement reçue');
+      }
+    } catch (err) {
+      alert('Une erreur est survenue, veuillez réessayer.');
+      payBtn.disabled = false;
+      payBtn.textContent = '💳 Payer ma commande';
+    }
+  });
 
   // Scroll reveal
   const obs = new IntersectionObserver(entries => {
