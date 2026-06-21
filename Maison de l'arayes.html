@@ -606,7 +606,7 @@
         <p class="hero-desc fu d2">
           L'<strong>Arayes</strong> comme vous ne l'avez jamais goûté.
           Viande épicée, grillée dans un pain artisanal croustillant.
-          Livraison maison, uniquement de <strong>19h à 22h</strong>.
+          Livraison express en <strong>15 à 20 minutes</strong> sur la Rive Gauche de Genève.
         </p>
 
         <div class="hero-ctas fu d3">
@@ -631,15 +631,15 @@
         <div class="strip-lbl">Par Arayes</div>
       </div>
       <div class="strip-item">
-        <div class="strip-val">19h–22h</div>
-        <div class="strip-lbl">Service du soir</div>
+        <div class="strip-val">15–20 min</div>
+        <div class="strip-lbl">Délai de livraison</div>
       </div>
       <div class="strip-item">
         <div class="strip-val">Dim–Jeu</div>
         <div class="strip-lbl">Dim dès 12h30</div>
       </div>
       <div class="strip-item">
-        <div class="strip-val">Genève</div>
+        <div class="strip-val">Rive Gauche</div>
         <div class="strip-lbl">Zone de livraison</div>
       </div>
     </div>
@@ -663,7 +663,7 @@
           Chez La Maison de L'Arayes, on ne fait qu'une seule chose — mais on la fait <strong>parfaitement bien</strong>. Pas de loyer de restaurant, pas de fioritures. On cuisine le soir, pour vous, avec les meilleurs ingrédients.
         </p>
         <p>
-          Résultat : <strong>12.95 CHF</strong> pour une expérience gustative authentique, livrée chaud à votre porte entre 19h et 22h.
+          Résultat : <strong>12.95 CHF</strong> pour une expérience gustative authentique, livrée chaud à votre porte en 15 à 20 minutes.
         </p>
       </div>
 
@@ -727,7 +727,7 @@
         <div class="rule"><div class="rule-dot"></div></div>
         <h2>Livré <em>chaud</em><br/>chez vous.</h2>
         <p>
-          Commandez avant 18h pour être servi entre 19h et 22h. Livraison ou retrait sur place disponible à Genève.
+          Commandez et soyez servi en moyenne en 15 à 20 minutes. Livraison sur la Rive Gauche de Genève, ou retrait sur place disponible.
         </p>
 
         <div class="cmd-infos">
@@ -735,14 +735,14 @@
             <div class="cmd-ic">🕐</div>
             <div>
               <div class="cmd-lbl">Délai de commande</div>
-              <div class="cmd-val">Avant 18h00 pour le soir même</div>
+              <div class="cmd-val">15 à 20 minutes en moyenne</div>
             </div>
           </div>
           <div class="cmd-row">
             <div class="cmd-ic">🛵</div>
             <div>
               <div class="cmd-lbl">Livraison</div>
-              <div class="cmd-val">Genève & environs (frais selon distance)</div>
+              <div class="cmd-val">Rive Gauche de Genève uniquement</div>
             </div>
           </div>
           <div class="cmd-row">
@@ -822,6 +822,27 @@
             <option value="retrait">Retrait sur place (gratuit)</option>
           </select>
         </div>
+
+        <div class="fg" id="quartier-fg">
+          <label>Quartier</label>
+          <select id="quartier">
+            <option value="">Choisissez votre quartier</option>
+            <option value="vieille-ville">Vieille-Ville / Centre</option>
+            <option value="plainpalais">Plainpalais</option>
+            <option value="jonction">Jonction</option>
+            <option value="acacias">Acacias</option>
+            <option value="champel">Champel</option>
+            <option value="florissant">Florissant / Malagnou</option>
+            <option value="eaux-vives">Eaux-Vives</option>
+            <option value="carouge">Carouge</option>
+            <option value="chene-bougeries">Chêne-Bougeries / Chêne-Bourg</option>
+            <option value="autre">Autre quartier (hors Rive Gauche)</option>
+          </select>
+        </div>
+
+        <p class="form-note" id="quartier-warning" style="display:none; color:var(--gold); margin-bottom:14px;">
+          😊 Nous livrons uniquement sur la Rive Gauche de Genève. Vous pouvez venir récupérer votre commande sur place, ou nous pouvons vous livrer au point le plus proche de chez vous sans sortir de la Rive Gauche — précisez-le dans votre adresse, on s'arrange par WhatsApp.
+        </p>
 
         <div class="fg" id="adresse-fg">
           <label>Adresse complète</label>
@@ -904,11 +925,22 @@
     document.body.style.overflow = '';
   }));
 
-  // Hide address when pickup
+  // Hide address/quartier when pickup
   const modeSelect = document.getElementById('mode-select');
   const adresseFg = document.getElementById('adresse-fg');
+  const quartierFg = document.getElementById('quartier-fg');
+  const quartierSelect = document.getElementById('quartier');
+  const quartierWarning = document.getElementById('quartier-warning');
   modeSelect.addEventListener('change', e => {
-    adresseFg.style.display = e.target.value === 'retrait' ? 'none' : 'block';
+    const isRetrait = e.target.value === 'retrait';
+    adresseFg.style.display = isRetrait ? 'none' : 'block';
+    quartierFg.style.display = isRetrait ? 'none' : 'block';
+    quartierWarning.style.display = (!isRetrait && quartierSelect.value === 'autre') ? 'block' : 'none';
+  });
+
+  // Warn when the chosen quartier is outside Rive Gauche
+  quartierSelect.addEventListener('change', e => {
+    quartierWarning.style.display = e.target.value === 'autre' ? 'block' : 'none';
   });
 
   // Live total calculator
@@ -933,13 +965,37 @@
       return;
     }
 
+    const telephone = document.getElementById('telephone').value.trim();
+    if (!telephone) {
+      alert('Merci d\'indiquer votre numéro de téléphone.');
+      return;
+    }
+
+    const mode = modeSelect.value;
+    const adresse = document.getElementById('adresse').value.trim();
+
+    if (mode === 'livraison') {
+      if (!quartierSelect.value) {
+        alert('Merci de sélectionner votre quartier.');
+        return;
+      }
+      if (!adresse) {
+        alert('Merci d\'indiquer votre adresse complète.');
+        return;
+      }
+      if (quartierSelect.value === 'autre') {
+        alert('😊 Nous livrons uniquement sur la Rive Gauche de Genève. Vous pouvez venir récupérer votre commande sur place, ou nous livrer au point le plus proche de chez vous sans sortir de la Rive Gauche — contactez-nous via WhatsApp pour qu\'on s\'arrange, ou choisissez "Retrait sur place".');
+        return;
+      }
+    }
+
     const payload = {
       classique,
       epice,
       nom: document.getElementById('nom').value + ' ' + document.getElementById('prenom').value,
-      telephone: document.getElementById('telephone').value,
-      mode: modeSelect.value,
-      adresse: document.getElementById('adresse').value
+      telephone,
+      mode,
+      adresse
     };
 
     payBtn.disabled = true;
