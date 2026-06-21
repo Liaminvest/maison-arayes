@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Livreur — La Maison de l'Arayes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0C1520;
+    --red: #9B3222;
+    --gold: #C4923A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: #fff;
+    font-family: 'Outfit', -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  #login-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px;
+    text-align: center;
+  }
+  #login-screen h1 { font-size: 24px; margin: 0 0 8px; }
+  #login-screen input {
+    background: #15212f;
+    border: 1px solid #ffffff22;
+    color: #fff;
+    padding: 16px;
+    border-radius: 10px;
+    font-size: 18px;
+    width: 100%;
+    max-width: 300px;
+    font-family: inherit;
+  }
+  #login-screen button {
+    background: var(--red);
+    color: #fff;
+    border: none;
+    padding: 16px 24px;
+    border-radius: 10px;
+    font-size: 17px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    width: 100%;
+    max-width: 300px;
+  }
+  #login-error { color: #ff6b6b; font-size: 15px; min-height: 20px; }
+
+  #dashboard { display: none; }
+  h1.title { font-size: 22px; margin: 4px 0 16px; }
+
+  .order-card {
+    background: #121f2e;
+    border: 1px solid #ffffff14;
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .order-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+  .order-phone a {
+    color: var(--gold);
+    font-size: 19px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .order-adresse {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 14px 0;
+    line-height: 1.4;
+    background: #0c1822;
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .order-detail { font-size: 17px; color: #c7d0db; margin: 10px 0; }
+  .order-total { font-size: 19px; font-weight: 700; color: var(--gold); margin-bottom: 14px; }
+
+  .btn-livre {
+    width: 100%;
+    background: #2E9E5B;
+    color: #fff;
+    border: none;
+    padding: 18px;
+    border-radius: 10px;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .empty { color: #8fa0b3; padding: 60px 20px; text-align: center; font-size: 18px; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h1>🛵 Espace livreur</h1>
+  <input type="password" id="login-input" placeholder="Mot de passe" />
+  <button onclick="login()">Se connecter</button>
+  <div id="login-error"></div>
+</div>
+
+<div id="dashboard">
+  <div class="wrap">
+    <h1 class="title">Livraisons en cours</h1>
+    <div id="orders-list"></div>
+  </div>
+</div>
+
+<script>
+  let password = localStorage.getItem('livreur_password') || '';
+  let refreshTimer = null;
+
+  async function login() {
+    const input = document.getElementById('login-input');
+    const pwd = input.value;
+    const ok = await tryFetchOrders(pwd);
+    if (ok) {
+      password = pwd;
+      localStorage.setItem('livreur_password', pwd);
+      showDashboard();
+    } else {
+      document.getElementById('login-error').textContent = 'Mot de passe incorrect.';
+    }
+  }
+
+  async function tryFetchOrders(pwd) {
+    try {
+      const res = await fetch('/api/orders', { headers: { 'x-admin-password': pwd } });
+      if (!res.ok) return false;
+      const data = await res.json();
+      renderOrders(data);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function showDashboard() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => tryFetchOrders(password), 10000);
+  }
+
+  function renderOrders(orders) {
+    const list = orders.filter(o => o.mode === 'livraison' && o.statut !== 'livre');
+    const container = document.getElementById('orders-list');
+
+    if (list.length === 0) {
+      container.innerHTML = '<div class="empty">Aucune livraison en attente 🎉</div>';
+      return;
+    }
+
+    container.innerHTML = list.map(o => `
+      <div class="order-card">
+        <div class="order-name">${escapeHtml(o.nom || '—')}</div>
+        <div class="order-phone"><a href="tel:${encodeURIComponent(o.telephone || '')}">📞 ${escapeHtml(o.telephone || '—')}</a></div>
+        <div class="order-adresse">📍 ${escapeHtml(o.adresse || 'Adresse non renseignée')}</div>
+        <div class="order-detail">${o.classique || 0}× Classique · ${o.epice || 0}× Épicé</div>
+        <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
+        <button class="btn-livre" onclick="marquerLivre(${o.id})">✅ Marquer comme livré</button>
+      </div>
+    `).join('');
+  }
+
+  async function marquerLivre(id) {
+    try {
+      await fetch(`/api/orders/${id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': password },
+        body: JSON.stringify({ statut: 'livre' })
+      });
+      tryFetchOrders(password);
+    } catch (err) {
+      alert('Erreur lors de la mise à jour.');
+    }
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  document.getElementById('login-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') login();
+  });
+
+  if (password) {
+    tryFetchOrders(password).then(ok => {
+      if (ok) showDashboard();
+    });
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin — La Maison de l'Arayes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0C1520;
+    --red: #9B3222;
+    --gold: #C4923A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: #fff;
+    font-family: 'Outfit', -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; }
+
+  /* Login */
+  #login-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px;
+  }
+  #login-screen h1 { font-size: 22px; margin: 0 0 8px; }
+  #login-screen input {
+    background: #15212f;
+    border: 1px solid #ffffff22;
+    color: #fff;
+    padding: 14px 16px;
+    border-radius: 8px;
+    font-size: 16px;
+    width: 280px;
+    font-family: inherit;
+  }
+  #login-screen button, .btn {
+    background: var(--red);
+    color: #fff;
+    border: none;
+    padding: 14px 22px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  #login-error { color: #ff6b6b; font-size: 14px; min-height: 18px; }
+
+  /* Dashboard */
+  #dashboard { display: none; }
+  header.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  header.top h1 { font-size: 24px; margin: 0; }
+  .btn-gold { background: var(--gold); color: #1a1208; }
+
+  .recap {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .recap-card {
+    background: #121f2e;
+    border: 1px solid #ffffff14;
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .recap-card .lbl { font-size: 12px; color: #8fa0b3; text-transform: uppercase; letter-spacing: .04em; }
+  .recap-card .val { font-size: 24px; font-weight: 700; margin-top: 6px; }
+
+  .orders-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+  .order-card {
+    background: #121f2e;
+    border: 1px solid #ffffff14;
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .order-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+  .order-time { font-size: 13px; color: #8fa0b3; }
+  .order-name { font-size: 17px; font-weight: 700; margin: 2px 0; }
+  .order-phone { font-size: 14px; color: #c7d0db; }
+  .order-detail { font-size: 14px; color: #c7d0db; margin: 10px 0 6px; line-height: 1.5; }
+  .order-total { font-size: 18px; font-weight: 700; color: var(--gold); margin: 6px 0; }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    padding: 5px 10px;
+    border-radius: 999px;
+    color: #fff;
+  }
+  .badge.nouvelle { background: #C0392B; }
+  .badge.en_preparation { background: #C4923A; color: #1a1208; }
+  .badge.en_livraison { background: #2E78D2; }
+  .badge.livre { background: #2E9E5B; }
+
+  .status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .status-btn {
+    background: #1a2838;
+    border: 1px solid #ffffff22;
+    color: #fff;
+    font-size: 12px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .status-btn.active {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  .empty { color: #8fa0b3; padding: 40px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h1>🔒 Espace administration</h1>
+  <input type="password" id="login-input" placeholder="Mot de passe" />
+  <button onclick="login()">Se connecter</button>
+  <div id="login-error"></div>
+</div>
+
+<div id="dashboard">
+  <div class="wrap">
+    <header class="top">
+      <h1>Commandes</h1>
+      <button class="btn btn-gold" onclick="exportCsv()">Exporter en CSV</button>
+    </header>
+
+    <div class="recap" id="recap"></div>
+
+    <div class="orders-grid" id="orders-grid"></div>
+  </div>
+</div>
+
+<script>
+  const STATUTS = ['nouvelle', 'en_preparation', 'en_livraison', 'livre'];
+  const STATUT_LABELS = {
+    nouvelle: 'Nouvelle',
+    en_preparation: 'En préparation',
+    en_livraison: 'En livraison',
+    livre: 'Livré'
+  };
+
+  let password = localStorage.getItem('admin_password') || '';
+  let refreshTimer = null;
+
+  async function login() {
+    const input = document.getElementById('login-input');
+    const pwd = input.value;
+    const ok = await tryFetchOrders(pwd);
+    if (ok) {
+      password = pwd;
+      localStorage.setItem('admin_password', pwd);
+      showDashboard();
+    } else {
+      document.getElementById('login-error').textContent = 'Mot de passe incorrect.';
+    }
+  }
+
+  async function tryFetchOrders(pwd) {
+    try {
+      const res = await fetch('/api/orders', { headers: { 'x-admin-password': pwd } });
+      if (!res.ok) return false;
+      const data = await res.json();
+      renderOrders(data);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function showDashboard() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => tryFetchOrders(password), 10000);
+  }
+
+  function renderOrders(orders) {
+    const totalCommandes = orders.length;
+    const totalCA = orders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
+    const totalClassique = orders.reduce((sum, o) => sum + (o.classique || 0), 0);
+    const totalEpice = orders.reduce((sum, o) => sum + (o.epice || 0), 0);
+
+    document.getElementById('recap').innerHTML = `
+      <div class="recap-card"><div class="lbl">Commandes</div><div class="val">${totalCommandes}</div></div>
+      <div class="recap-card"><div class="lbl">Chiffre d'affaires</div><div class="val">${totalCA.toFixed(2)} CHF</div></div>
+      <div class="recap-card"><div class="lbl">Arayes Classique</div><div class="val">${totalClassique}</div></div>
+      <div class="recap-card"><div class="lbl">Arayes Épicé</div><div class="val">${totalEpice}</div></div>
+    `;
+
+    const grid = document.getElementById('orders-grid');
+    if (orders.length === 0) {
+      grid.innerHTML = '<div class="empty">Aucune commande pour le moment.</div>';
+      return;
+    }
+
+    grid.innerHTML = orders.map(o => {
+      const time = new Date(o.created_at).toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const adresseLine = o.mode === 'livraison' && o.adresse ? `<div class="order-detail">📍 ${escapeHtml(o.adresse)}</div>` : '';
+      const statusBtns = STATUTS.map(s =>
+        `<button class="status-btn ${s === o.statut ? 'active' : ''}" onclick="setStatus(${o.id}, '${s}')">${STATUT_LABELS[s]}</button>`
+      ).join('');
+
+      return `
+        <div class="order-card">
+          <div class="order-top">
+            <div>
+              <div class="order-time">${time}</div>
+              <div class="order-name">${escapeHtml(o.nom || '—')}</div>
+              <div class="order-phone">${escapeHtml(o.telephone || '—')}</div>
+            </div>
+            <span class="badge ${o.statut}">${STATUT_LABELS[o.statut] || o.statut}</span>
+          </div>
+          <div class="order-detail">${o.classique || 0}× Classique · ${o.epice || 0}× Épicé · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
+          ${adresseLine}
+          <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
+          <div class="status-row">${statusBtns}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function setStatus(id, statut) {
+    try {
+      await fetch(`/api/orders/${id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': password },
+        body: JSON.stringify({ statut })
+      });
+      tryFetchOrders(password);
+    } catch (err) {
+      alert('Erreur lors du changement de statut.');
+    }
+  }
+
+  async function exportCsv() {
+    try {
+      const res = await fetch('/api/orders/export', { headers: { 'x-admin-password': password } });
+      if (!res.ok) throw new Error('export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'commandes.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert("Erreur lors de l'export CSV.");
+    }
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  document.getElementById('login-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') login();
+  });
+
+  if (password) {
+    tryFetchOrders(password).then(ok => {
+      if (ok) showDashboard();
+    });
+  }
+</script>
+</body>
+</html>
