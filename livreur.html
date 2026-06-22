@@ -171,7 +171,7 @@
         <div class="order-name">${escapeHtml(o.nom || '—')}</div>
         <div class="order-phone"><a href="tel:${encodeURIComponent(o.telephone || '')}">📞 ${escapeHtml(o.telephone || '—')}</a></div>
         <div class="order-adresse">📍 ${escapeHtml(o.adresse || 'Adresse non renseignée')}</div>
-        <div class="order-detail">${o.classique || 0}× Classique · ${o.epice || 0}× Épicé</div>
+        <div class="order-detail">${o.classique || 0}× Classique · ${o.thina || 0}× Thina</div>
         <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
         <button class="btn-livre" onclick="marquerLivre(${o.id})">✅ Marquer comme livré</button>
       </div>

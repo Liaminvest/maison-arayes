@@ -26,6 +26,7 @@ async function initDb() {
       statut TEXT DEFAULT 'nouvelle'
     )
   `);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS thina INT DEFAULT 0`);
 }
 
 function checkAdminPassword(req, res, next) {
@@ -53,14 +54,14 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     const session = event.data.object;
     const metadata = session.metadata || {};
     const classique = parseInt(metadata.classique || '0', 10);
-    const epice = parseInt(metadata.epice || '0', 10);
+    const thina = parseInt(metadata.thina || '0', 10);
     const total = (session.amount_total || 0) / 100;
 
     try {
       await pool.query(
-        `INSERT INTO orders (nom, telephone, mode, adresse, classique, epice, total)
+        `INSERT INTO orders (nom, telephone, mode, adresse, classique, thina, total)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, epice, total]
+        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total]
       );
     } catch (err) {
       console.error('Failed to insert order:', err);
@@ -75,7 +76,7 @@ app.use(express.static(__dirname));
 
 app.post('/create-checkout-session', async (req, res) => {
   try {
-    const { classique, epice, nom, telephone, mode, adresse } = req.body;
+    const { classique, thina, nom, telephone, mode, adresse } = req.body;
 
     const line_items = [];
     if (classique > 0) {
@@ -88,14 +89,24 @@ app.post('/create-checkout-session', async (req, res) => {
         quantity: classique
       });
     }
-    if (epice > 0) {
+    if (thina > 0) {
       line_items.push({
         price_data: {
           currency: 'chf',
-          product_data: { name: 'Arayes Épicé' },
-          unit_amount: 1495
+          product_data: { name: 'Pot de Thina' },
+          unit_amount: 80
         },
-        quantity: epice
+        quantity: thina
+      });
+    }
+    if (mode === 'livraison') {
+      line_items.push({
+        price_data: {
+          currency: 'chf',
+          product_data: { name: 'Frais de livraison' },
+          unit_amount: 500
+        },
+        quantity: 1
       });
     }
 
@@ -103,7 +114,7 @@ app.post('/create-checkout-session', async (req, res) => {
       mode: 'payment',
       payment_method_types: ['card'],
       line_items,
-      metadata: { nom, telephone, mode, adresse, classique: String(classique), epice: String(epice) },
+      metadata: { nom, telephone, mode, adresse, classique: String(classique), thina: String(thina) },
       success_url: BASE_URL + '/success.html',
       cancel_url: BASE_URL + '/cancel.html'
     });
@@ -155,10 +166,10 @@ app.post('/api/orders/:id/status', checkAdminPassword, async (req, res) => {
 app.get('/api/orders/export', checkAdminPassword, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
-    const header = ['date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'epice', 'total', 'statut'];
+    const header = ['date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'thina', 'total', 'statut'];
     const lines = [header.map(csvField).join(',')];
     for (const r of result.rows) {
-      lines.push([r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.epice, r.total, r.statut].map(csvField).join(','));
+      lines.push([r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.thina, r.total, r.statut].map(csvField).join(','));
     }
     const csv = lines.join('\r\n');
 

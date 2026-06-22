@@ -215,13 +215,13 @@
     const totalCommandes = orders.length;
     const totalCA = orders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
     const totalClassique = orders.reduce((sum, o) => sum + (o.classique || 0), 0);
-    const totalEpice = orders.reduce((sum, o) => sum + (o.epice || 0), 0);
+    const totalThina = orders.reduce((sum, o) => sum + (o.thina || 0), 0);
 
     document.getElementById('recap').innerHTML = `
       <div class="recap-card"><div class="lbl">Commandes</div><div class="val">${totalCommandes}</div></div>
       <div class="recap-card"><div class="lbl">Chiffre d'affaires</div><div class="val">${totalCA.toFixed(2)} CHF</div></div>
       <div class="recap-card"><div class="lbl">Arayes Classique</div><div class="val">${totalClassique}</div></div>
-      <div class="recap-card"><div class="lbl">Arayes Épicé</div><div class="val">${totalEpice}</div></div>
+      <div class="recap-card"><div class="lbl">Pots de Thina</div><div class="val">${totalThina}</div></div>
     `;
 
     const grid = document.getElementById('orders-grid');
@@ -247,7 +247,7 @@
             </div>
             <span class="badge ${o.statut}">${STATUT_LABELS[o.statut] || o.statut}</span>
           </div>
-          <div class="order-detail">${o.classique || 0}× Classique · ${o.epice || 0}× Épicé · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
+          <div class="order-detail">${o.classique || 0}× Classique · ${o.thina || 0}× Thina · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
           ${adresseLine}
           <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
           <div class="status-row">${statusBtns}</div>
