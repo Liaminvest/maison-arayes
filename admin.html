@@ -106,6 +106,16 @@
   .order-name { font-size: 17px; font-weight: 700; margin: 2px 0; }
   .order-phone { font-size: 14px; color: #c7d0db; }
   .order-detail { font-size: 14px; color: #c7d0db; margin: 10px 0 6px; line-height: 1.5; }
+  .order-scheduled {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--gold);
+    background: #1a2838;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 8px 0 4px;
+  }
+  .order-countdown { font-size: 13px; color: #8fa0b3; margin: 0 0 8px; }
   .order-total { font-size: 18px; font-weight: 700; color: var(--gold); margin: 6px 0; }
   .badge {
     display: inline-block;
@@ -221,6 +231,40 @@
     en_livraison: 'En livraison',
     livre: 'Livré'
   };
+
+  const OPENING_HOURS = {
+    0: [12, 30, 22, 0],
+    1: [19, 0, 22, 0],
+    2: [19, 0, 22, 0],
+    3: [19, 0, 22, 0],
+    4: [19, 0, 22, 0],
+    5: null,
+    6: null
+  };
+
+  function getDayWindow(date) {
+    const hours = OPENING_HOURS[date.getDay()];
+    if (!hours) return null;
+    const [oh, om, ch, cm] = hours;
+    const open = new Date(date); open.setHours(oh, om, 0, 0);
+    const close = new Date(date); close.setHours(ch, cm, 0, 0);
+    return { open, close };
+  }
+
+  function isOpenAt(date) {
+    const win = getDayWindow(date);
+    return !!win && date >= win.open && date <= win.close;
+  }
+
+  function getNextOpening(from) {
+    for (let i = 0; i < 8; i++) {
+      const d = new Date(from);
+      d.setDate(d.getDate() + i);
+      const win = getDayWindow(d);
+      if (win && win.open > from) return win.open;
+    }
+    return null;
+  }
 
   let password = localStorage.getItem('adminPassword') || '';
   let refreshTimer = null;
@@ -338,6 +382,31 @@
         ? `<button class="status-btn pret-btn" onclick="marquerPret(${o.id})">✅ Marquer comme prêt</button>`
         : '';
 
+      let scheduledBlock = '';
+      if (o.scheduled_for) {
+        const schedDate = new Date(o.scheduled_for);
+        const schedText = schedDate.toLocaleString('fr-CH', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const now = new Date();
+        let countdownText;
+        if (isOpenAt(now)) {
+          countdownText = '🟢 Actuellement ouvert';
+        } else {
+          const nextOpening = getNextOpening(now);
+          if (nextOpening) {
+            const diffMs = nextOpening - now;
+            const h = Math.floor(diffMs / 3600000);
+            const m = Math.round((diffMs % 3600000) / 60000);
+            countdownText = `🕐 Ouverture dans ${h > 0 ? h + 'h ' : ''}${m}min`;
+          } else {
+            countdownText = '';
+          }
+        }
+        scheduledBlock = `
+          <div class="order-scheduled">⏰ Prêt pour : ${schedText}</div>
+          <div class="order-countdown">${countdownText}</div>
+        `;
+      }
+
       return `
         <div class="order-card" data-order-id="${o.id}">
           <div class="order-top">
@@ -348,6 +417,7 @@
             </div>
             <span class="badge ${o.statut}">${STATUT_LABELS[o.statut] || o.statut}</span>
           </div>
+          ${scheduledBlock}
           <div class="order-detail">${o.classique || 0}× Classique · ${o.thina || 0}× Thina · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
           ${adresseLine}
           <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>

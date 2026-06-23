@@ -40,6 +40,7 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS eta_set_at TIMESTAMP`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP`);
 }
 
 async function geocodeAddress(adresse) {
@@ -119,12 +120,13 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     const classique = parseInt(metadata.classique || '0', 10);
     const thina = parseInt(metadata.thina || '0', 10);
     const total = (session.amount_total || 0) / 100;
+    const scheduledFor = metadata.scheduledFor ? new Date(metadata.scheduledFor) : null;
 
     try {
       const inserted = await pool.query(
-        `INSERT INTO orders (nom, telephone, mode, adresse, classique, thina, total)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total]
+        `INSERT INTO orders (nom, telephone, mode, adresse, classique, thina, total, scheduled_for)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total, scheduledFor]
       );
       const orderId = inserted.rows[0].id;
 
@@ -147,7 +149,7 @@ app.use(express.static(__dirname));
 
 app.post('/create-checkout-session', async (req, res) => {
   try {
-    const { classique, thina, nom, telephone, mode, adresse, promoCode } = req.body;
+    const { classique, thina, nom, telephone, mode, adresse, promoCode, scheduledFor } = req.body;
 
     const promoValid = !!(PROMO_CODE && promoCode && promoCode.trim().toUpperCase() === PROMO_CODE.trim().toUpperCase());
     const discountFactor = promoValid ? (1 - PROMO_DISCOUNT_PERCENT / 100) : 1;
@@ -189,7 +191,7 @@ app.post('/create-checkout-session', async (req, res) => {
       mode: 'payment',
       payment_method_types: ['card'],
       line_items,
-      metadata: { nom, telephone, mode, adresse, classique: String(classique), thina: String(thina) },
+      metadata: { nom, telephone, mode, adresse, classique: String(classique), thina: String(thina), scheduledFor: scheduledFor || '' },
       success_url: BASE_URL + '/success.html',
       cancel_url: BASE_URL + '/cancel.html'
     });

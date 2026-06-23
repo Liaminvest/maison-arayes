@@ -742,6 +742,24 @@
       <div class="cmd-form">
         <h3>Votre commande</h3>
 
+        <div class="fg" id="closed-notice" style="display:none; background:#1a2838; border:1px solid var(--gold); border-radius:8px; padding:14px;">
+          <strong style="color:var(--gold);">🕐 Nous sommes actuellement fermés.</strong>
+          <p style="margin:6px 0 0; font-size:14px; color:var(--cream2);" id="closed-notice-text"></p>
+        </div>
+
+        <div class="fg" id="schedule-checkbox-fg" style="display:none;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="schedule-checkbox" style="width:18px; height:18px;" />
+            📅 Programmer une livraison pour plus tard
+          </label>
+        </div>
+
+        <div class="fg" id="schedule-datetime-fg" style="display:none;">
+          <label>Date et heure souhaitées</label>
+          <input type="datetime-local" id="schedule-datetime" />
+          <p class="form-note" style="margin-top:6px;">Horaires : Dim 12h30–22h · Lun–Jeu 19h–22h · Fermé Ven &amp; Sam</p>
+        </div>
+
         <div class="fg-row fg">
           <div class="fg">
             <label>Prénom</label>
@@ -898,6 +916,81 @@
     document.body.style.overflow = '';
   }));
 
+  // Opening hours & scheduled delivery
+  const OPENING_HOURS = {
+    0: [12, 30, 22, 0],
+    1: [19, 0, 22, 0],
+    2: [19, 0, 22, 0],
+    3: [19, 0, 22, 0],
+    4: [19, 0, 22, 0],
+    5: null,
+    6: null
+  };
+
+  function getDayWindow(date) {
+    const hours = OPENING_HOURS[date.getDay()];
+    if (!hours) return null;
+    const [oh, om, ch, cm] = hours;
+    const open = new Date(date); open.setHours(oh, om, 0, 0);
+    const close = new Date(date); close.setHours(ch, cm, 0, 0);
+    return { open, close };
+  }
+
+  function isOpenAt(date) {
+    const win = getDayWindow(date);
+    return !!win && date >= win.open && date <= win.close;
+  }
+
+  function getNextOpening(from) {
+    for (let i = 0; i < 8; i++) {
+      const d = new Date(from);
+      d.setDate(d.getDate() + i);
+      const win = getDayWindow(d);
+      if (win && win.open > from) return win.open;
+    }
+    return null;
+  }
+
+  function formatDateTime(date) {
+    return date.toLocaleString('fr-CH', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function toLocalDatetimeInputValue(date) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  const closedNotice = document.getElementById('closed-notice');
+  const closedNoticeText = document.getElementById('closed-notice-text');
+  const scheduleCheckboxFg = document.getElementById('schedule-checkbox-fg');
+  const scheduleCheckbox = document.getElementById('schedule-checkbox');
+  const scheduleDatetimeFg = document.getElementById('schedule-datetime-fg');
+  const scheduleDatetime = document.getElementById('schedule-datetime');
+
+  const shopOpenNow = isOpenAt(new Date());
+
+  if (!shopOpenNow) {
+    const nextOpening = getNextOpening(new Date());
+    closedNotice.style.display = 'block';
+    closedNoticeText.textContent = nextOpening
+      ? `Vous pouvez programmer votre commande pour la prochaine ouverture : ${formatDateTime(nextOpening)}.`
+      : 'Vous pouvez programmer votre commande pour notre prochaine ouverture.';
+    scheduleDatetimeFg.style.display = 'block';
+    if (nextOpening) {
+      scheduleDatetime.value = toLocalDatetimeInputValue(nextOpening);
+      scheduleDatetime.min = toLocalDatetimeInputValue(new Date());
+    }
+  } else {
+    scheduleCheckboxFg.style.display = 'block';
+    scheduleCheckbox.addEventListener('change', () => {
+      scheduleDatetimeFg.style.display = scheduleCheckbox.checked ? 'block' : 'none';
+      if (scheduleCheckbox.checked && !scheduleDatetime.value) {
+        const nextOpening2 = getNextOpening(new Date());
+        if (nextOpening2) scheduleDatetime.value = toLocalDatetimeInputValue(nextOpening2);
+      }
+    });
+  }
+
   // Hide address/quartier when pickup
   const modeSelect = document.getElementById('mode-select');
   const adresseFg = document.getElementById('adresse-fg');
@@ -964,6 +1057,25 @@
       }
     }
 
+    let scheduledFor = null;
+    const wantsSchedule = !shopOpenNow || scheduleCheckbox.checked;
+    if (wantsSchedule) {
+      if (!scheduleDatetime.value) {
+        alert('Merci de choisir une date et une heure pour votre livraison programmée.');
+        return;
+      }
+      const chosen = new Date(scheduleDatetime.value);
+      if (chosen <= new Date()) {
+        alert('La date programmée doit être dans le futur.');
+        return;
+      }
+      if (!isOpenAt(chosen)) {
+        alert('Cet horaire est hors de nos heures d\'ouverture. Horaires : Dim 12h30–22h · Lun–Jeu 19h–22h · Fermé Ven & Sam.');
+        return;
+      }
+      scheduledFor = chosen.toISOString();
+    }
+
     const payload = {
       classique,
       thina,
@@ -971,7 +1083,8 @@
       telephone,
       mode,
       adresse,
-      promoCode: document.getElementById('promo-code').value.trim()
+      promoCode: document.getElementById('promo-code').value.trim(),
+      scheduledFor
     };
 
     payBtn.disabled = true;
