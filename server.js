@@ -42,6 +42,7 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS numero_commande TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stripe_session_id TEXT`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_status_log (
       id SERIAL PRIMARY KEY,
@@ -140,9 +141,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 
     try {
       const inserted = await pool.query(
-        `INSERT INTO orders (nom, telephone, mode, adresse, classique, thina, total, scheduled_for)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total, scheduledFor]
+        `INSERT INTO orders (nom, telephone, mode, adresse, classique, thina, total, scheduled_for, stripe_session_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total, scheduledFor, session.id]
       );
       const orderId = inserted.rows[0].id;
       const numeroCommande = `CMD-${String(orderId).padStart(6, '0')}`;
@@ -211,7 +212,7 @@ app.post('/create-checkout-session', async (req, res) => {
       payment_method_types: ['card'],
       line_items,
       metadata: { nom, telephone, mode, adresse, classique: String(classique), thina: String(thina), scheduledFor: scheduledFor || '' },
-      success_url: BASE_URL + '/success.html',
+      success_url: BASE_URL + '/success.html?session_id={CHECKOUT_SESSION_ID}',
       cancel_url: BASE_URL + '/cancel.html'
     });
 
@@ -224,6 +225,22 @@ app.post('/create-checkout-session', async (req, res) => {
 
 app.get('/success.html', (req, res) => {
   res.sendFile(__dirname + '/success.html');
+});
+
+app.get('/api/order-status', async (req, res) => {
+  try {
+    const { session_id } = req.query;
+    if (!session_id) return res.status(400).json({ error: 'session_id requis' });
+    const result = await pool.query(
+      'SELECT statut, mode, numero_commande FROM orders WHERE stripe_session_id = $1',
+      [session_id]
+    );
+    if (result.rows.length === 0) return res.json({ found: false });
+    res.json({ found: true, ...result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/cancel.html', (req, res) => {

@@ -44,6 +44,27 @@
     padding: 14px 28px;
     border-radius: 8px;
   }
+  .notify-block {
+    margin-bottom: 24px;
+  }
+  button.btn-notify {
+    display: inline-block;
+    background: #C4923A;
+    color: #1a1208;
+    border: none;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 28px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .notify-status {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #8fa0b3;
+  }
 </style>
 </head>
 <body>
@@ -54,7 +75,92 @@
       Merci pour votre commande. Elle arrive en moyenne en 15 à 20 minutes.<br/>
       Un message WhatsApp de confirmation vous sera envoyé sous peu.
     </p>
+
+    <div class="notify-block">
+      <button class="btn-notify" id="notify-btn" onclick="enableNotify()">🔔 Me notifier quand ma commande est prête</button>
+      <div class="notify-status" id="notify-status"></div>
+    </div>
+
     <a class="btn" href="/">Retour à l'accueil</a>
   </div>
+
+  <script>
+    const sessionId = new URLSearchParams(window.location.search).get('session_id');
+    const statusEl = document.getElementById('notify-status');
+    const notifyBtn = document.getElementById('notify-btn');
+    let audioCtx = null;
+    let pollTimer = null;
+
+    function playDing() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      let startTime = audioCtx.currentTime;
+      [1000, 1300].forEach(freq => {
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        const durSec = 0.15;
+        const fade = 0.015;
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(0.3, startTime + fade);
+        gainNode.gain.linearRampToValueAtTime(0.3, startTime + durSec - fade);
+        gainNode.gain.linearRampToValueAtTime(0, startTime + durSec);
+
+        osc.start(startTime);
+        osc.stop(startTime + durSec);
+        startTime += durSec + 0.1;
+      });
+    }
+
+    async function enableNotify() {
+      if (!sessionId) {
+        statusEl.textContent = "Impossible d'identifier votre commande pour activer la notification.";
+        return;
+      }
+      if (!('Notification' in window)) {
+        statusEl.textContent = "Votre navigateur ne supporte pas les notifications.";
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        statusEl.textContent = "Notifications refusées. Vous pouvez les autoriser dans les réglages du navigateur.";
+        return;
+      }
+
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx.resume();
+
+      notifyBtn.disabled = true;
+      notifyBtn.textContent = '🔔 Notification activée — gardez cette page ouverte';
+      statusEl.textContent = 'Nous vous notifions dès que votre commande est prête...';
+
+      pollOrderStatus();
+      pollTimer = setInterval(pollOrderStatus, 10000);
+    }
+
+    async function pollOrderStatus() {
+      try {
+        const res = await fetch(`/api/order-status?session_id=${encodeURIComponent(sessionId)}`);
+        const data = await res.json();
+        if (!data.found) return;
+
+        const doneStatut = data.mode === 'retrait' ? 'pret' : 'livre';
+        if (data.statut === doneStatut) {
+          clearInterval(pollTimer);
+          playDing();
+          const title = data.mode === 'retrait' ? '✅ Votre commande est prête !' : '✅ Votre commande a été livrée !';
+          const body = data.mode === 'retrait' ? 'Vous pouvez venir la récupérer.' : 'Bon appétit !';
+          new Notification(title, { body });
+          statusEl.textContent = title;
+        }
+      } catch (err) {
+        // silently retry on next poll
+      }
+    }
+  </script>
 </body>
 </html>
