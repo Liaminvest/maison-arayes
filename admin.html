@@ -119,6 +119,7 @@
   }
   .badge.nouvelle { background: #C0392B; }
   .badge.en_preparation { background: #C4923A; color: #1a1208; }
+  .badge.pret { background: #5B3FA0; }
   .badge.en_livraison { background: #2E78D2; }
   .badge.livre { background: #2E9E5B; }
 
@@ -141,6 +142,12 @@
   .status-btn.active {
     border-color: var(--gold);
     color: var(--gold);
+  }
+  .status-btn.pret-btn {
+    background: var(--gold);
+    color: #1a1208;
+    border-color: var(--gold);
+    font-weight: 700;
   }
   .empty { color: #8fa0b3; padding: 40px; text-align: center; }
 </style>
@@ -172,6 +179,7 @@
   const STATUT_LABELS = {
     nouvelle: 'Nouvelle',
     en_preparation: 'En préparation',
+    pret: 'Prêt',
     en_livraison: 'En livraison',
     livre: 'Livré'
   };
@@ -236,6 +244,9 @@
       const statusBtns = STATUTS.map(s =>
         `<button class="status-btn ${s === o.statut ? 'active' : ''}" onclick="setStatus(${o.id}, '${s}')">${STATUT_LABELS[s]}</button>`
       ).join('');
+      const pretBtn = (o.mode === 'livraison' && (o.statut === 'nouvelle' || o.statut === 'en_preparation'))
+        ? `<button class="status-btn pret-btn" onclick="marquerPret(${o.id})">✅ Marquer comme prêt</button>`
+        : '';
 
       return `
         <div class="order-card">
@@ -250,7 +261,7 @@
           <div class="order-detail">${o.classique || 0}× Classique · ${o.thina || 0}× Thina · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
           ${adresseLine}
           <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
-          <div class="status-row">${statusBtns}</div>
+          <div class="status-row">${pretBtn}${statusBtns}</div>
         </div>
       `;
     }).join('');
@@ -266,6 +277,18 @@
       tryFetchOrders(password);
     } catch (err) {
       alert('Erreur lors du changement de statut.');
+    }
+  }
+
+  async function marquerPret(id) {
+    try {
+      await fetch(`/api/orders/${id}/pret`, {
+        method: 'POST',
+        headers: { 'x-admin-password': password }
+      });
+      tryFetchOrders(password);
+    } catch (err) {
+      alert('Erreur lors du marquage comme prêt.');
     }
   }
 

@@ -63,6 +63,30 @@
   #dashboard { display: none; }
   h1.title { font-size: 22px; margin: 4px 0 16px; }
 
+  .wait-banner {
+    background: #F2B134;
+    color: #1a1208;
+    font-weight: 700;
+    font-size: 17px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    margin-bottom: 18px;
+    text-align: center;
+    display: none;
+  }
+
+  .stop-number {
+    display: inline-block;
+    background: var(--red);
+    color: #fff;
+    font-weight: 800;
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+  }
+  .order-trajet { font-size: 15px; color: #8fa0b3; margin: 6px 0 14px; }
+
   .order-card {
     background: #121f2e;
     border: 1px solid #ffffff14;
@@ -116,7 +140,8 @@
 
 <div id="dashboard">
   <div class="wrap">
-    <h1 class="title">Livraisons en cours</h1>
+    <h1 class="title">Tournée</h1>
+    <div id="wait-banner" class="wait-banner"></div>
     <div id="orders-list"></div>
   </div>
 </div>
@@ -140,10 +165,10 @@
 
   async function tryFetchOrders(pwd) {
     try {
-      const res = await fetch('/api/orders/livraison', { headers: { 'x-livreur-password': pwd } });
+      const res = await fetch('/api/orders/route', { headers: { 'x-livreur-password': pwd } });
       if (!res.ok) return false;
       const data = await res.json();
-      renderOrders(data);
+      renderRoute(data);
       return true;
     } catch (err) {
       return false;
@@ -154,25 +179,35 @@
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
     if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = setInterval(() => tryFetchOrders(password), 10000);
+    refreshTimer = setInterval(() => tryFetchOrders(password), 15000);
   }
 
-  function renderOrders(list) {
+  function renderRoute(data) {
+    const { stops, wait_suggestion, message } = data;
+    const banner = document.getElementById('wait-banner');
     const container = document.getElementById('orders-list');
 
-    if (list.length === 0) {
-      container.innerHTML = '<div class="empty">Aucune livraison en attente 🎉</div>';
+    if (wait_suggestion) {
+      banner.textContent = `⏳ Attends ~${wait_suggestion.minutes_restantes} min - une commande proche sera bientôt prête`;
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+
+    if (!stops || stops.length === 0) {
+      container.innerHTML = `<div class="empty">${escapeHtml(message || 'Aucune livraison prête pour le moment')}</div>`;
       return;
     }
 
-    container.innerHTML = list.map(o => `
+    container.innerHTML = stops.map((s, i) => `
       <div class="order-card">
-        <div class="order-name">${escapeHtml(o.nom || '—')}</div>
-        <div class="order-phone"><a href="tel:${encodeURIComponent(o.telephone || '')}">📞 ${escapeHtml(o.telephone || '—')}</a></div>
-        <div class="order-adresse">📍 ${escapeHtml(o.adresse || 'Adresse non renseignée')}</div>
-        <div class="order-detail">${o.classique || 0}× Classique · ${o.thina || 0}× Thina</div>
-        <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
-        <button class="btn-livre" onclick="marquerLivre(${o.id})">✅ Marquer comme livré</button>
+        <div class="stop-number">Arrêt ${i + 1}</div>
+        <div class="order-adresse">📍 ${escapeHtml(s.adresse || 'Adresse non renseignée')}</div>
+        <div class="order-name">${escapeHtml(s.nom || '—')}</div>
+        <div class="order-phone"><a href="tel:${encodeURIComponent(s.telephone || '')}">📞 ${escapeHtml(s.telephone || '—')}</a></div>
+        <div class="order-detail">${s.classique || 0}× Classique · ${s.thina || 0}× Thina</div>
+        <div class="order-trajet">≈ ${s.minutes_trajet} min depuis la cuisine</div>
+        <button class="btn-livre" onclick="marquerLivre(${s.id})">✅ Marquer comme livré</button>
       </div>
     `).join('');
   }
