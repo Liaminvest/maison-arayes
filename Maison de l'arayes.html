@@ -822,6 +822,11 @@
           <textarea placeholder="Tahini, Thina, allergies, instructions..."></textarea>
         </div>
 
+        <div class="fg">
+          <label>Code promo (optionnel)</label>
+          <input type="text" id="promo-code" placeholder="Code promo" />
+        </div>
+
         <div class="form-total">
           <div class="form-total-lbl">Total estimé</div>
           <div class="form-total-val" id="total-val">0 CHF</div>
@@ -965,7 +970,8 @@
       nom: document.getElementById('nom').value + ' ' + document.getElementById('prenom').value,
       telephone,
       mode,
-      adresse
+      adresse,
+      promoCode: document.getElementById('promo-code').value.trim()
     };
 
     payBtn.disabled = true;

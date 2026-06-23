@@ -7,6 +7,8 @@ const BASE_URL = process.env.BASE_URL;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const LIVREUR_PASSWORD = process.env.LIVREUR_PASSWORD;
 const KITCHEN_ADDRESS = process.env.KITCHEN_ADDRESS;
+const PROMO_CODE = process.env.PROMO;
+const PROMO_DISCOUNT_PERCENT = 10;
 const AVERAGE_SPEED_KMH = 30;
 
 let KITCHEN_LAT = null;
@@ -145,15 +147,19 @@ app.use(express.static(__dirname));
 
 app.post('/create-checkout-session', async (req, res) => {
   try {
-    const { classique, thina, nom, telephone, mode, adresse } = req.body;
+    const { classique, thina, nom, telephone, mode, adresse, promoCode } = req.body;
+
+    const promoValid = !!(PROMO_CODE && promoCode && promoCode.trim().toUpperCase() === PROMO_CODE.trim().toUpperCase());
+    const discountFactor = promoValid ? (1 - PROMO_DISCOUNT_PERCENT / 100) : 1;
+    const promoSuffix = promoValid ? ` (-${PROMO_DISCOUNT_PERCENT}%)` : '';
 
     const line_items = [];
     if (classique > 0) {
       line_items.push({
         price_data: {
           currency: 'chf',
-          product_data: { name: 'Arayes Classique' },
-          unit_amount: 1295
+          product_data: { name: `Arayes Classique${promoSuffix}` },
+          unit_amount: Math.round(1295 * discountFactor)
         },
         quantity: classique
       });
@@ -162,8 +168,8 @@ app.post('/create-checkout-session', async (req, res) => {
       line_items.push({
         price_data: {
           currency: 'chf',
-          product_data: { name: 'Pot de Thina' },
-          unit_amount: 80
+          product_data: { name: `Pot de Thina${promoSuffix}` },
+          unit_amount: Math.round(80 * discountFactor)
         },
         quantity: thina
       });
