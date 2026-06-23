@@ -176,7 +176,7 @@
     livre: 'Livré'
   };
 
-  let password = localStorage.getItem('admin_password') || '';
+  let password = localStorage.getItem('adminPassword') || '';
   let refreshTimer = null;
 
   async function login() {
@@ -185,7 +185,7 @@
     const ok = await tryFetchOrders(pwd);
     if (ok) {
       password = pwd;
-      localStorage.setItem('admin_password', pwd);
+      localStorage.setItem('adminPassword', pwd);
       showDashboard();
     } else {
       document.getElementById('login-error').textContent = 'Mot de passe incorrect.';

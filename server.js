@@ -5,6 +5,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const LIVREUR_PASSWORD = process.env.LIVREUR_PASSWORD;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -27,10 +28,22 @@ async function initDb() {
     )
   `);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS thina INT DEFAULT 0`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS eta INT`);
 }
 
 function checkAdminPassword(req, res, next) {
   if (ADMIN_PASSWORD && req.header('x-admin-password') === ADMIN_PASSWORD) return next();
+  res.status(401).json({ error: 'Unauthorized' });
+}
+
+function checkLivreurPassword(req, res, next) {
+  if (LIVREUR_PASSWORD && req.header('x-livreur-password') === LIVREUR_PASSWORD) return next();
+  res.status(401).json({ error: 'Unauthorized' });
+}
+
+function checkAdminOrLivreurPassword(req, res, next) {
+  if (ADMIN_PASSWORD && req.header('x-admin-password') === ADMIN_PASSWORD) return next();
+  if (LIVREUR_PASSWORD && req.header('x-livreur-password') === LIVREUR_PASSWORD) return next();
   res.status(401).json({ error: 'Unauthorized' });
 }
 
@@ -152,11 +165,34 @@ app.get('/api/orders', checkAdminPassword, async (req, res) => {
   }
 });
 
-app.post('/api/orders/:id/status', checkAdminPassword, async (req, res) => {
+app.post('/api/orders/:id/status', checkAdminOrLivreurPassword, async (req, res) => {
   try {
     const { statut } = req.body;
     await pool.query('UPDATE orders SET statut = $1 WHERE id = $2', [statut, req.params.id]);
     res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders/:id/eta', checkAdminPassword, async (req, res) => {
+  try {
+    const { eta } = req.body;
+    await pool.query('UPDATE orders SET eta = $1 WHERE id = $2', [eta, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/orders/livraison', checkLivreurPassword, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM orders WHERE mode = 'livraison' AND statut != 'livre' ORDER BY created_at DESC"
+    );
+    res.json(result.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

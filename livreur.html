@@ -122,7 +122,7 @@
 </div>
 
 <script>
-  let password = localStorage.getItem('livreur_password') || '';
+  let password = localStorage.getItem('livreurPassword') || '';
   let refreshTimer = null;
 
   async function login() {
@@ -131,7 +131,7 @@
     const ok = await tryFetchOrders(pwd);
     if (ok) {
       password = pwd;
-      localStorage.setItem('livreur_password', pwd);
+      localStorage.setItem('livreurPassword', pwd);
       showDashboard();
     } else {
       document.getElementById('login-error').textContent = 'Mot de passe incorrect.';
@@ -140,7 +140,7 @@
 
   async function tryFetchOrders(pwd) {
     try {
-      const res = await fetch('/api/orders', { headers: { 'x-admin-password': pwd } });
+      const res = await fetch('/api/orders/livraison', { headers: { 'x-livreur-password': pwd } });
       if (!res.ok) return false;
       const data = await res.json();
       renderOrders(data);
@@ -157,8 +157,7 @@
     refreshTimer = setInterval(() => tryFetchOrders(password), 10000);
   }
 
-  function renderOrders(orders) {
-    const list = orders.filter(o => o.mode === 'livraison' && o.statut !== 'livre');
+  function renderOrders(list) {
     const container = document.getElementById('orders-list');
 
     if (list.length === 0) {
@@ -182,7 +181,7 @@
     try {
       await fetch(`/api/orders/${id}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-password': password },
+        headers: { 'Content-Type': 'application/json', 'x-livreur-password': password },
         body: JSON.stringify({ statut: 'livre' })
       });
       tryFetchOrders(password);
