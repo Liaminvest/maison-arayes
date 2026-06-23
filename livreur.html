@@ -127,9 +127,48 @@
   }
 
   .empty { color: #8fa0b3; padding: 60px 20px; text-align: center; font-size: 18px; }
+
+  .sound-banner {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: var(--gold);
+    color: #1a1208;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 16px;
+    font-weight: 600;
+    font-size: 14px;
+    text-align: center;
+  }
+  .sound-banner button {
+    background: #1a1208;
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  @keyframes flash-border {
+    0%, 100% { border-color: #ffffff14; box-shadow: none; }
+    50% { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(196, 146, 58, 0.4); }
+  }
+  .order-card.new-flash { animation: flash-border 0.5s ease-in-out 4; }
 </style>
 </head>
 <body>
+
+<div id="sound-banner" class="sound-banner">
+  <span>🔔 Active les sons pour être alerté des commandes prêtes</span>
+  <button onclick="enableSound()">🔔 Activer les sons</button>
+</div>
 
 <div id="login-screen">
   <h1>🛵 Espace livreur</h1>
@@ -149,6 +188,47 @@
 <script>
   let password = localStorage.getItem('livreurPassword') || '';
   let refreshTimer = null;
+
+  let audioCtx = null;
+  let soundEnabled = false;
+  let seenStopIds = new Set();
+  let firstLoad = true;
+
+  function playBeep(frequencies, duration = 150, gap = 100) {
+    if (!soundEnabled) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    let startTime = audioCtx.currentTime;
+    const durSec = duration / 1000;
+    const fade = Math.min(0.015, durSec / 4);
+
+    frequencies.forEach(freq => {
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      gainNode.gain.setValueAtTime(0, startTime);
+      gainNode.gain.linearRampToValueAtTime(0.3, startTime + fade);
+      gainNode.gain.linearRampToValueAtTime(0.3, startTime + durSec - fade);
+      gainNode.gain.linearRampToValueAtTime(0, startTime + durSec);
+
+      osc.start(startTime);
+      osc.stop(startTime + durSec);
+
+      startTime += durSec + gap / 1000;
+    });
+  }
+
+  function enableSound() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume();
+    soundEnabled = true;
+    playBeep([880]);
+    document.getElementById('sound-banner').style.display = 'none';
+  }
 
   async function login() {
     const input = document.getElementById('login-input');
@@ -194,13 +274,22 @@
       banner.style.display = 'none';
     }
 
+    const newStopIds = [];
+    if (!firstLoad && stops) {
+      stops.forEach(s => {
+        if (!seenStopIds.has(s.id)) newStopIds.push(s.id);
+      });
+    }
+    (stops || []).forEach(s => seenStopIds.add(s.id));
+    firstLoad = false;
+
     if (!stops || stops.length === 0) {
       container.innerHTML = `<div class="empty">${escapeHtml(message || 'Aucune livraison prête pour le moment')}</div>`;
       return;
     }
 
     container.innerHTML = stops.map((s, i) => `
-      <div class="order-card">
+      <div class="order-card" data-stop-id="${s.id}">
         <div class="stop-number">Arrêt ${i + 1}</div>
         <div class="order-adresse">📍 ${escapeHtml(s.adresse || 'Adresse non renseignée')}</div>
         <div class="order-name">${escapeHtml(s.nom || '—')}</div>
@@ -210,6 +299,17 @@
         <button class="btn-livre" onclick="marquerLivre(${s.id})">✅ Marquer comme livré</button>
       </div>
     `).join('');
+
+    if (newStopIds.length > 0) {
+      playBeep([660, 880, 1100]);
+      newStopIds.forEach(id => {
+        const el = container.querySelector(`[data-stop-id="${id}"]`);
+        if (el) {
+          el.classList.add('new-flash');
+          setTimeout(() => el.classList.remove('new-flash'), 2000);
+        }
+      });
+    }
   }
 
   async function marquerLivre(id) {
