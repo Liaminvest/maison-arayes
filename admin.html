@@ -411,7 +411,7 @@
         <div class="order-card" data-order-id="${o.id}">
           <div class="order-top">
             <div>
-              <div class="order-time">${time}</div>
+              <div class="order-time">${time}${o.numero_commande ? ' · ' + escapeHtml(o.numero_commande) : ''}</div>
               <div class="order-name">${escapeHtml(o.nom || '—')}</div>
               <div class="order-phone">${escapeHtml(o.telephone || '—')}</div>
             </div>

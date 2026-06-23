@@ -41,6 +41,22 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS numero_commande TEXT`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_status_log (
+      id SERIAL PRIMARY KEY,
+      order_id INT NOT NULL,
+      statut TEXT NOT NULL,
+      changed_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+}
+
+async function logStatusChange(orderId, statut) {
+  await pool.query(
+    'INSERT INTO order_status_log (order_id, statut) VALUES ($1, $2)',
+    [orderId, statut]
+  );
 }
 
 async function geocodeAddress(adresse) {
@@ -129,6 +145,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
         [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total, scheduledFor]
       );
       const orderId = inserted.rows[0].id;
+      const numeroCommande = `CMD-${String(orderId).padStart(6, '0')}`;
+      await pool.query('UPDATE orders SET numero_commande = $1 WHERE id = $2', [numeroCommande, orderId]);
+      await logStatusChange(orderId, 'nouvelle');
 
       if (metadata.mode === 'livraison' && metadata.adresse) {
         const coords = await geocodeAddress(metadata.adresse);
@@ -233,6 +252,7 @@ app.post('/api/orders/:id/status', checkAdminOrLivreurPassword, async (req, res)
   try {
     const { statut } = req.body;
     await pool.query('UPDATE orders SET statut = $1 WHERE id = $2', [statut, req.params.id]);
+    await logStatusChange(req.params.id, statut);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -254,6 +274,7 @@ app.post('/api/orders/:id/eta', checkAdminPassword, async (req, res) => {
 app.post('/api/orders/:id/pret', checkAdminPassword, async (req, res) => {
   try {
     const result = await pool.query("UPDATE orders SET statut = 'pret' WHERE id = $1 RETURNING *", [req.params.id]);
+    await logStatusChange(req.params.id, 'pret');
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -331,6 +352,7 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
 
     const stops = orderedOrders.map((o, i) => ({
       id: o.id,
+      numero_commande: o.numero_commande,
       nom: o.nom,
       telephone: o.telephone,
       adresse: o.adresse,
@@ -392,10 +414,10 @@ app.get('/api/orders/livraison', checkLivreurPassword, async (req, res) => {
 app.get('/api/orders/export', checkAdminPassword, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
-    const header = ['date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'thina', 'total', 'statut'];
+    const header = ['numero_commande', 'date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'thina', 'total', 'statut'];
     const lines = [header.map(csvField).join(',')];
     for (const r of result.rows) {
-      lines.push([r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.thina, r.total, r.statut].map(csvField).join(','));
+      lines.push([r.numero_commande, r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.thina, r.total, r.statut].map(csvField).join(','));
     }
     const csv = lines.join('\r\n');
 

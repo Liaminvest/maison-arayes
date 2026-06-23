@@ -290,7 +290,7 @@
 
     container.innerHTML = stops.map((s, i) => `
       <div class="order-card" data-stop-id="${s.id}">
-        <div class="stop-number">Arrêt ${i + 1}</div>
+        <div class="stop-number">Arrêt ${i + 1}${s.numero_commande ? ' · ' + escapeHtml(s.numero_commande) : ''}</div>
         <div class="order-adresse">📍 ${escapeHtml(s.adresse || 'Adresse non renseignée')}</div>
         <div class="order-name">${escapeHtml(s.nom || '—')}</div>
         <div class="order-phone"><a href="tel:${encodeURIComponent(s.telephone || '')}">📞 ${escapeHtml(s.telephone || '—')}</a></div>
