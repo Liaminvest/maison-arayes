@@ -213,7 +213,10 @@
   <div class="wrap">
     <header class="top">
       <h1>Commandes</h1>
-      <button class="btn btn-gold" onclick="exportCsv()">Exporter en CSV</button>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn" id="toggle-delivered-btn" onclick="toggleDelivered()">📦 Anciennes commandes</button>
+        <button class="btn btn-gold" onclick="exportCsv()">Exporter en CSV</button>
+      </div>
     </header>
 
     <div class="recap" id="recap"></div>
@@ -268,6 +271,8 @@
 
   let password = localStorage.getItem('adminPassword') || '';
   let refreshTimer = null;
+  let lastOrders = [];
+  let showDelivered = false;
 
   let audioCtx = null;
   let soundEnabled = false;
@@ -343,6 +348,7 @@
   }
 
   function renderOrders(orders) {
+    lastOrders = orders;
     const totalCommandes = orders.length;
     const totalCA = orders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
     const totalClassique = orders.reduce((sum, o) => sum + (o.classique || 0), 0);
@@ -366,13 +372,39 @@
     orders.forEach(o => seenOrderIds.add(o.id));
     firstLoad = false;
 
+    renderGrid();
+
     const grid = document.getElementById('orders-grid');
-    if (orders.length === 0) {
-      grid.innerHTML = '<div class="empty">Aucune commande pour le moment.</div>';
+    if (newOrderIds.length > 0) {
+      playBeep([880, 880]);
+      newOrderIds.forEach(id => {
+        const el = grid.querySelector(`[data-order-id="${id}"]`);
+        if (el) {
+          el.classList.add('new-flash');
+          setTimeout(() => el.classList.remove('new-flash'), 2000);
+        }
+      });
+    }
+  }
+
+  function toggleDelivered() {
+    showDelivered = !showDelivered;
+    document.getElementById('toggle-delivered-btn').textContent = showDelivered
+      ? '📦 Masquer les anciennes commandes'
+      : '📦 Anciennes commandes';
+    renderGrid();
+  }
+
+  function renderGrid() {
+    const grid = document.getElementById('orders-grid');
+    const visibleOrders = showDelivered ? lastOrders : lastOrders.filter(o => o.statut !== 'livre');
+
+    if (visibleOrders.length === 0) {
+      grid.innerHTML = `<div class="empty">${showDelivered ? 'Aucune commande livrée pour le moment.' : 'Aucune commande en cours.'}</div>`;
       return;
     }
 
-    grid.innerHTML = orders.map(o => {
+    grid.innerHTML = visibleOrders.map(o => {
       const time = new Date(o.created_at).toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       const adresseLine = o.mode === 'livraison' && o.adresse ? `<div class="order-detail">📍 ${escapeHtml(o.adresse)}</div>` : '';
       const statusBtns = STATUTS.map(s =>
@@ -425,17 +457,6 @@
         </div>
       `;
     }).join('');
-
-    if (newOrderIds.length > 0) {
-      playBeep([880, 880]);
-      newOrderIds.forEach(id => {
-        const el = grid.querySelector(`[data-order-id="${id}"]`);
-        if (el) {
-          el.classList.add('new-flash');
-          setTimeout(() => el.classList.remove('new-flash'), 2000);
-        }
-      });
-    }
   }
 
   async function setStatus(id, statut) {
