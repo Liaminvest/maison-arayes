@@ -349,17 +349,6 @@
 
   function renderOrders(orders) {
     lastOrders = orders;
-    const totalCommandes = orders.length;
-    const totalCA = orders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
-    const totalClassique = orders.reduce((sum, o) => sum + (o.classique || 0), 0);
-    const totalThina = orders.reduce((sum, o) => sum + (o.thina || 0), 0);
-
-    document.getElementById('recap').innerHTML = `
-      <div class="recap-card"><div class="lbl">Commandes</div><div class="val">${totalCommandes}</div></div>
-      <div class="recap-card"><div class="lbl">Chiffre d'affaires</div><div class="val">${totalCA.toFixed(2)} CHF</div></div>
-      <div class="recap-card"><div class="lbl">Arayes Classique</div><div class="val">${totalClassique}</div></div>
-      <div class="recap-card"><div class="lbl">Pots de Thina</div><div class="val">${totalThina}</div></div>
-    `;
 
     const newOrderIds = [];
     if (!firstLoad) {
@@ -398,6 +387,18 @@
   function renderGrid() {
     const grid = document.getElementById('orders-grid');
     const visibleOrders = showDelivered ? lastOrders : lastOrders.filter(o => o.statut !== 'livre');
+
+    const totalCommandes = visibleOrders.length;
+    const totalCA = visibleOrders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
+    const totalClassique = visibleOrders.reduce((sum, o) => sum + (o.classique || 0), 0);
+    const totalThina = visibleOrders.reduce((sum, o) => sum + (o.thina || 0), 0);
+
+    document.getElementById('recap').innerHTML = `
+      <div class="recap-card"><div class="lbl">Commandes</div><div class="val">${totalCommandes}</div></div>
+      <div class="recap-card"><div class="lbl">Chiffre d'affaires</div><div class="val">${totalCA.toFixed(2)} CHF</div></div>
+      <div class="recap-card"><div class="lbl">Arayes Classique</div><div class="val">${totalClassique}</div></div>
+      <div class="recap-card"><div class="lbl">Pots de Thina</div><div class="val">${totalThina}</div></div>
+    `;
 
     if (visibleOrders.length === 0) {
       grid.innerHTML = `<div class="empty">${showDelivered ? 'Aucune commande livrée pour le moment.' : 'Aucune commande en cours.'}</div>`;
