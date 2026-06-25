@@ -194,7 +194,7 @@
   let seenStopIds = new Set();
   let firstLoad = true;
 
-  function playBeep(frequencies, duration = 150, gap = 100) {
+  function playBeep(frequencies, duration = 350, gap = 150) {
     if (!soundEnabled) return;
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 

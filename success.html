@@ -102,8 +102,8 @@
         osc.connect(gainNode);
         gainNode.connect(audioCtx.destination);
 
-        const durSec = 0.15;
-        const fade = 0.015;
+        const durSec = 0.35;
+        const fade = 0.02;
         gainNode.gain.setValueAtTime(0, startTime);
         gainNode.gain.linearRampToValueAtTime(0.3, startTime + fade);
         gainNode.gain.linearRampToValueAtTime(0.3, startTime + durSec - fade);
@@ -111,8 +111,15 @@
 
         osc.start(startTime);
         osc.stop(startTime + durSec);
-        startTime += durSec + 0.1;
+        startTime += durSec + 0.15;
       });
+    }
+
+    function speak(text) {
+      if (!('speechSynthesis' in window)) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'fr-FR';
+      speechSynthesis.speak(utterance);
     }
 
     async function enableNotify() {
@@ -152,6 +159,7 @@
         if (data.statut === doneStatut) {
           clearInterval(pollTimer);
           playDing();
+          setTimeout(() => speak('Votre arayes est arrivé !'), 1100);
           const title = data.mode === 'retrait' ? '✅ Votre commande est prête !' : '✅ Votre commande a été livrée !';
           const body = data.mode === 'retrait' ? 'Vous pouvez venir la récupérer.' : 'Bon appétit !';
           new Notification(title, { body });

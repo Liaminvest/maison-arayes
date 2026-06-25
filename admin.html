@@ -279,7 +279,7 @@
   let seenOrderIds = new Set();
   let firstLoad = true;
 
-  function playBeep(frequencies, duration = 150, gap = 100) {
+  function playBeep(frequencies, duration = 350, gap = 150) {
     if (!soundEnabled) return;
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -305,6 +305,14 @@
 
       startTime += durSec + gap / 1000;
     });
+  }
+
+  function speak(text) {
+    if (!soundEnabled) return;
+    if (!('speechSynthesis' in window)) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'fr-FR';
+    speechSynthesis.speak(utterance);
   }
 
   function enableSound() {
@@ -366,6 +374,7 @@
     const grid = document.getElementById('orders-grid');
     if (newOrderIds.length > 0) {
       playBeep([880, 880]);
+      setTimeout(() => speak('Nouvelle commande'), 900);
       newOrderIds.forEach(id => {
         const el = grid.querySelector(`[data-order-id="${id}"]`);
         if (el) {
