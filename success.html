@@ -65,6 +65,17 @@
     font-size: 14px;
     color: #8fa0b3;
   }
+  .eta-box {
+    background: #1a2838;
+    border: 1px solid #C4923A;
+    color: #C4923A;
+    font-weight: 700;
+    font-size: 17px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    margin: 0 0 24px;
+    min-height: 24px;
+  }
 </style>
 </head>
 <body>
@@ -72,9 +83,11 @@
     <div class="icon">✅</div>
     <h1>Commande confirmée !</h1>
     <p>
-      Merci pour votre commande. Elle arrive en moyenne en 15 à 20 minutes.<br/>
+      Merci pour votre commande !<br/>
       Un message WhatsApp de confirmation vous sera envoyé sous peu.
     </p>
+
+    <div class="eta-box" id="eta-text">Calcul de l'estimation...</div>
 
     <div class="notify-block">
       <button class="btn-notify" id="notify-btn" onclick="enableNotify()">🔔 Me notifier quand ma commande est prête</button>
@@ -88,8 +101,10 @@
     const sessionId = new URLSearchParams(window.location.search).get('session_id');
     const statusEl = document.getElementById('notify-status');
     const notifyBtn = document.getElementById('notify-btn');
+    const etaEl = document.getElementById('eta-text');
     let audioCtx = null;
     let pollTimer = null;
+    let notifyEnabled = false;
 
     function playDing() {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -141,33 +156,53 @@
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       audioCtx.resume();
 
+      notifyEnabled = true;
       notifyBtn.disabled = true;
       notifyBtn.textContent = '🔔 Notification activée — gardez cette page ouverte';
       statusEl.textContent = 'Nous vous notifions dès que votre commande est prête...';
-
-      pollOrderStatus();
-      pollTimer = setInterval(pollOrderStatus, 10000);
     }
 
     async function pollOrderStatus() {
+      if (!sessionId) {
+        etaEl.textContent = '';
+        return;
+      }
       try {
         const res = await fetch(`/api/order-status?session_id=${encodeURIComponent(sessionId)}`);
         const data = await res.json();
-        if (!data.found) return;
+        if (!data.found) {
+          etaEl.textContent = "Préparation de votre commande en cours...";
+          return;
+        }
 
         const doneStatut = data.mode === 'retrait' ? 'pret' : 'livre';
         if (data.statut === doneStatut) {
           clearInterval(pollTimer);
-          playDing();
-          setTimeout(() => speak('Votre arayes est arrivé !'), 1100);
           const title = data.mode === 'retrait' ? '✅ Votre commande est prête !' : '✅ Votre commande a été livrée !';
-          const body = data.mode === 'retrait' ? 'Vous pouvez venir la récupérer.' : 'Bon appétit !';
-          new Notification(title, { body });
-          statusEl.textContent = title;
+          etaEl.textContent = title;
+          if (notifyEnabled) {
+            playDing();
+            setTimeout(() => speak('Votre arayes est arrivé !'), 1100);
+            const body = data.mode === 'retrait' ? 'Vous pouvez venir la récupérer.' : 'Bon appétit !';
+            new Notification(title, { body });
+            statusEl.textContent = title;
+          }
+        } else if (data.eta_minutes !== null && data.eta_minutes !== undefined) {
+          const label = data.mode === 'retrait' ? 'prête' : 'livrée';
+          etaEl.textContent = `⏱ Estimation : ${label} dans environ ${data.eta_minutes} min`;
+        } else {
+          etaEl.textContent = 'Préparation de votre commande en cours...';
         }
       } catch (err) {
         // silently retry on next poll
       }
+    }
+
+    if (sessionId) {
+      pollOrderStatus();
+      pollTimer = setInterval(pollOrderStatus, 10000);
+    } else {
+      etaEl.textContent = '';
     }
   </script>
 </body>

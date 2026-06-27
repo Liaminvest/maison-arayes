@@ -10,6 +10,8 @@ const KITCHEN_ADDRESS = process.env.KITCHEN_ADDRESS;
 const PROMO_CODE = process.env.PROMO;
 const PROMO_DISCOUNT_PERCENT = 10;
 const AVERAGE_SPEED_KMH = 30;
+const KITCHEN_CAPACITY = 4;
+const PREP_TIME_MIN = 10;
 
 let KITCHEN_LAT = null;
 let KITCHEN_LNG = null;
@@ -97,6 +99,146 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Simule une cuisine à capacité limitée (plusieurs commandes en parallèle) :
+// renvoie le nombre de minutes avant que la (queuePosition + 1)-ème commande
+// en attente obtienne une place sur le grill et termine de cuire.
+function simulateKitchenQueue(queuePosition, cookingRemaining, capacity, ownCookTime) {
+  const freeEvents = cookingRemaining.slice();
+  let freeSlotsNow = Math.max(0, capacity - cookingRemaining.length);
+  const ordersToProcess = queuePosition + 1;
+  let lastStart = 0;
+
+  for (let i = 0; i < ordersToProcess; i++) {
+    let startTime;
+    if (freeSlotsNow > 0) {
+      startTime = 0;
+      freeSlotsNow--;
+    } else {
+      freeEvents.sort((a, b) => a - b);
+      startTime = freeEvents.shift();
+      freeEvents.push(startTime + ownCookTime);
+    }
+    lastStart = startTime;
+  }
+  return lastStart + ownCookTime;
+}
+
+async function getKitchenQueueAheadCount(createdAt) {
+  const result = await pool.query(
+    "SELECT COUNT(*) FROM orders WHERE statut = 'nouvelle' AND created_at < $1",
+    [createdAt]
+  );
+  return parseInt(result.rows[0].count, 10);
+}
+
+async function getCookingRemainingMinutes() {
+  const result = await pool.query(`
+    SELECT o.id, MAX(l.changed_at) AS started_at
+    FROM orders o
+    LEFT JOIN order_status_log l ON l.order_id = o.id AND l.statut = 'en_preparation'
+    WHERE o.statut = 'en_preparation'
+    GROUP BY o.id
+  `);
+  const now = Date.now();
+  return result.rows.map(r => {
+    if (!r.started_at) return PREP_TIME_MIN;
+    const elapsedMin = (now - new Date(r.started_at).getTime()) / 60000;
+    return Math.max(0, PREP_TIME_MIN - elapsedMin);
+  });
+}
+
+// Cœur de la tournée optimisée : récupère les commandes prêtes en livraison,
+// les ordonne via OSRM (repli plus-proche-voisin si indisponible), et renvoie
+// aussi celles dont l'adresse n'a pas pu être géolocalisée.
+async function computeOptimizedStops() {
+  const readyResult = await pool.query(
+    "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'pret' ORDER BY created_at ASC"
+  );
+  const allReady = readyResult.rows;
+  const readyOrders = allReady.filter(o => o.lat !== null && o.lng !== null);
+  const unlocatedOrders = allReady.filter(o => o.lat === null || o.lng === null);
+
+  let orderedOrders = [];
+  let cumulativeMinutes = [];
+
+  if (readyOrders.length > 0 && KITCHEN_LAT !== null && KITCHEN_LNG !== null) {
+    try {
+      const coords = [`${KITCHEN_LNG},${KITCHEN_LAT}`, ...readyOrders.map(o => `${o.lng},${o.lat}`)].join(';');
+      const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false&overview=false`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const osrmRes = await fetch(osrmUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      const osrmData = await osrmRes.json();
+
+      if (osrmData.code !== 'Ok') throw new Error('Réponse OSRM invalide');
+
+      const waypoints = osrmData.waypoints;
+      const legs = osrmData.trips[0].legs;
+
+      const indexed = readyOrders.map((order, i) => ({
+        order,
+        tripIndex: waypoints[i + 1].waypoint_index
+      }));
+      indexed.sort((a, b) => a.tripIndex - b.tripIndex);
+      orderedOrders = indexed.map(x => x.order);
+
+      let cumSeconds = 0;
+      cumulativeMinutes = orderedOrders.map((_, i) => {
+        cumSeconds += legs[i].duration;
+        return cumSeconds / 60;
+      });
+    } catch (err) {
+      console.error('OSRM indisponible, repli sur le plus proche voisin:', err.message);
+      const remaining = [...readyOrders];
+      orderedOrders = [];
+      cumulativeMinutes = [];
+      let currentLat = KITCHEN_LAT;
+      let currentLng = KITCHEN_LNG;
+      let cumKm = 0;
+      while (remaining.length > 0) {
+        let nearestIdx = 0;
+        let nearestDist = Infinity;
+        remaining.forEach((o, i) => {
+          const d = haversineDistance(currentLat, currentLng, o.lat, o.lng);
+          if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+        });
+        const next = remaining.splice(nearestIdx, 1)[0];
+        cumKm += nearestDist;
+        orderedOrders.push(next);
+        cumulativeMinutes.push((cumKm / AVERAGE_SPEED_KMH) * 60);
+        currentLat = next.lat;
+        currentLng = next.lng;
+      }
+    }
+  }
+
+  return { orderedOrders, cumulativeMinutes, unlocatedOrders };
+}
+
+// Estime quand une commande donnée sera prête (et livrée, le cas échéant),
+// en tenant compte de la charge actuelle de la cuisine et, pour une
+// livraison, de la tournée en cours du livreur.
+async function estimateOrderEta(order) {
+  const queuePosition = await getKitchenQueueAheadCount(order.created_at);
+  const cookingRemaining = await getCookingRemainingMinutes();
+  const readyInMinutes = simulateKitchenQueue(queuePosition, cookingRemaining, KITCHEN_CAPACITY, PREP_TIME_MIN);
+
+  if (order.mode !== 'livraison') {
+    return Math.round(readyInMinutes);
+  }
+
+  if (order.lat === null || order.lng === null || KITCHEN_LAT === null || KITCHEN_LNG === null) {
+    return Math.round(readyInMinutes);
+  }
+
+  const { cumulativeMinutes } = await computeOptimizedStops();
+  const remainingRouteTime = cumulativeMinutes.length > 0 ? cumulativeMinutes[cumulativeMinutes.length - 1] : 0;
+  const travelToNewAddress = haversineDistance(KITCHEN_LAT, KITCHEN_LNG, order.lat, order.lng) / AVERAGE_SPEED_KMH * 60;
+
+  return Math.round(Math.max(readyInMinutes, remainingRouteTime) + travelToNewAddress);
 }
 
 function checkAdminPassword(req, res, next) {
@@ -236,11 +378,29 @@ app.get('/api/order-status', async (req, res) => {
     const { session_id } = req.query;
     if (!session_id) return res.status(400).json({ error: 'session_id requis' });
     const result = await pool.query(
-      'SELECT statut, mode, numero_commande FROM orders WHERE stripe_session_id = $1',
+      'SELECT id, created_at, statut, mode, lat, lng, numero_commande FROM orders WHERE stripe_session_id = $1',
       [session_id]
     );
     if (result.rows.length === 0) return res.json({ found: false });
-    res.json({ found: true, ...result.rows[0] });
+
+    const order = result.rows[0];
+    const doneStatut = order.mode === 'retrait' ? 'pret' : 'livre';
+    let eta_minutes = null;
+    if (order.statut !== doneStatut) {
+      try {
+        eta_minutes = await estimateOrderEta(order);
+      } catch (err) {
+        console.error('Erreur estimation ETA:', err.message);
+      }
+    }
+
+    res.json({
+      found: true,
+      statut: order.statut,
+      mode: order.mode,
+      numero_commande: order.numero_commande,
+      eta_minutes
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -309,71 +469,10 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
       return res.json({ stops: [], wait_suggestion: null, message: 'Tournée indisponible : adresse de la cuisine non géolocalisée' });
     }
 
-    const readyResult = await pool.query(
-      "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'pret' ORDER BY created_at ASC"
-    );
-    const allReady = readyResult.rows;
-    const readyOrders = allReady.filter(o => o.lat !== null && o.lng !== null);
-    const unlocatedOrders = allReady.filter(o => o.lat === null || o.lng === null);
+    const { orderedOrders, cumulativeMinutes, unlocatedOrders } = await computeOptimizedStops();
 
-    if (allReady.length === 0) {
+    if (orderedOrders.length === 0 && unlocatedOrders.length === 0) {
       return res.json({ stops: [], wait_suggestion: null, message: 'Aucune livraison prête pour le moment' });
-    }
-
-    let orderedOrders = [];
-    let cumulativeMinutes = [];
-
-    // Si toutes les commandes prêtes ont échoué au géocodage, il n'y a rien à optimiser.
-    if (readyOrders.length > 0) {
-      try {
-        const coords = [`${KITCHEN_LNG},${KITCHEN_LAT}`, ...readyOrders.map(o => `${o.lng},${o.lat}`)].join(';');
-        const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false&overview=false`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const osrmRes = await fetch(osrmUrl, { signal: controller.signal });
-        clearTimeout(timeout);
-        const osrmData = await osrmRes.json();
-
-        if (osrmData.code !== 'Ok') throw new Error('Réponse OSRM invalide');
-
-        const waypoints = osrmData.waypoints;
-        const legs = osrmData.trips[0].legs;
-
-        const indexed = readyOrders.map((order, i) => ({
-          order,
-          tripIndex: waypoints[i + 1].waypoint_index
-        }));
-        indexed.sort((a, b) => a.tripIndex - b.tripIndex);
-        orderedOrders = indexed.map(x => x.order);
-
-        let cumSeconds = 0;
-        cumulativeMinutes = orderedOrders.map((_, i) => {
-          cumSeconds += legs[i].duration;
-          return cumSeconds / 60;
-        });
-      } catch (err) {
-        console.error('OSRM indisponible, repli sur le plus proche voisin:', err.message);
-        const remaining = [...readyOrders];
-        orderedOrders = [];
-        cumulativeMinutes = [];
-        let currentLat = KITCHEN_LAT;
-        let currentLng = KITCHEN_LNG;
-        let cumKm = 0;
-        while (remaining.length > 0) {
-          let nearestIdx = 0;
-          let nearestDist = Infinity;
-          remaining.forEach((o, i) => {
-            const d = haversineDistance(currentLat, currentLng, o.lat, o.lng);
-            if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
-          });
-          const next = remaining.splice(nearestIdx, 1)[0];
-          cumKm += nearestDist;
-          orderedOrders.push(next);
-          cumulativeMinutes.push((cumKm / AVERAGE_SPEED_KMH) * 60);
-          currentLat = next.lat;
-          currentLng = next.lng;
-        }
-      }
     }
 
     const stops = orderedOrders.map((o, i) => ({
