@@ -306,64 +306,69 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
     }
 
     const readyResult = await pool.query(
-      "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'pret' AND lat IS NOT NULL ORDER BY created_at ASC"
+      "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'pret' ORDER BY created_at ASC"
     );
-    const readyOrders = readyResult.rows;
+    const allReady = readyResult.rows;
+    const readyOrders = allReady.filter(o => o.lat !== null && o.lng !== null);
+    const unlocatedOrders = allReady.filter(o => o.lat === null || o.lng === null);
 
-    if (readyOrders.length === 0) {
+    if (allReady.length === 0) {
       return res.json({ stops: [], wait_suggestion: null, message: 'Aucune livraison prête pour le moment' });
     }
 
-    let orderedOrders;
-    let cumulativeMinutes;
+    let orderedOrders = [];
+    let cumulativeMinutes = [];
 
-    try {
-      const coords = [`${KITCHEN_LNG},${KITCHEN_LAT}`, ...readyOrders.map(o => `${o.lng},${o.lat}`)].join(';');
-      const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false&overview=false`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      const osrmRes = await fetch(osrmUrl, { signal: controller.signal });
-      clearTimeout(timeout);
-      const osrmData = await osrmRes.json();
+    // Si toutes les commandes prêtes ont échoué au géocodage, il n'y a rien à optimiser.
+    if (readyOrders.length > 0) {
+      try {
+        const coords = [`${KITCHEN_LNG},${KITCHEN_LAT}`, ...readyOrders.map(o => `${o.lng},${o.lat}`)].join(';');
+        const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false&overview=false`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const osrmRes = await fetch(osrmUrl, { signal: controller.signal });
+        clearTimeout(timeout);
+        const osrmData = await osrmRes.json();
 
-      if (osrmData.code !== 'Ok') throw new Error('Réponse OSRM invalide');
+        if (osrmData.code !== 'Ok') throw new Error('Réponse OSRM invalide');
 
-      const waypoints = osrmData.waypoints;
-      const legs = osrmData.trips[0].legs;
+        const waypoints = osrmData.waypoints;
+        const legs = osrmData.trips[0].legs;
 
-      const indexed = readyOrders.map((order, i) => ({
-        order,
-        tripIndex: waypoints[i + 1].waypoint_index
-      }));
-      indexed.sort((a, b) => a.tripIndex - b.tripIndex);
-      orderedOrders = indexed.map(x => x.order);
+        const indexed = readyOrders.map((order, i) => ({
+          order,
+          tripIndex: waypoints[i + 1].waypoint_index
+        }));
+        indexed.sort((a, b) => a.tripIndex - b.tripIndex);
+        orderedOrders = indexed.map(x => x.order);
 
-      let cumSeconds = 0;
-      cumulativeMinutes = orderedOrders.map((_, i) => {
-        cumSeconds += legs[i].duration;
-        return cumSeconds / 60;
-      });
-    } catch (err) {
-      console.error('OSRM indisponible, repli sur le plus proche voisin:', err.message);
-      const remaining = [...readyOrders];
-      orderedOrders = [];
-      cumulativeMinutes = [];
-      let currentLat = KITCHEN_LAT;
-      let currentLng = KITCHEN_LNG;
-      let cumKm = 0;
-      while (remaining.length > 0) {
-        let nearestIdx = 0;
-        let nearestDist = Infinity;
-        remaining.forEach((o, i) => {
-          const d = haversineDistance(currentLat, currentLng, o.lat, o.lng);
-          if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+        let cumSeconds = 0;
+        cumulativeMinutes = orderedOrders.map((_, i) => {
+          cumSeconds += legs[i].duration;
+          return cumSeconds / 60;
         });
-        const next = remaining.splice(nearestIdx, 1)[0];
-        cumKm += nearestDist;
-        orderedOrders.push(next);
-        cumulativeMinutes.push((cumKm / AVERAGE_SPEED_KMH) * 60);
-        currentLat = next.lat;
-        currentLng = next.lng;
+      } catch (err) {
+        console.error('OSRM indisponible, repli sur le plus proche voisin:', err.message);
+        const remaining = [...readyOrders];
+        orderedOrders = [];
+        cumulativeMinutes = [];
+        let currentLat = KITCHEN_LAT;
+        let currentLng = KITCHEN_LNG;
+        let cumKm = 0;
+        while (remaining.length > 0) {
+          let nearestIdx = 0;
+          let nearestDist = Infinity;
+          remaining.forEach((o, i) => {
+            const d = haversineDistance(currentLat, currentLng, o.lat, o.lng);
+            if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+          });
+          const next = remaining.splice(nearestIdx, 1)[0];
+          cumKm += nearestDist;
+          orderedOrders.push(next);
+          cumulativeMinutes.push((cumKm / AVERAGE_SPEED_KMH) * 60);
+          currentLat = next.lat;
+          currentLng = next.lng;
+        }
       }
     }
 
@@ -376,8 +381,26 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
       classique: o.classique,
       thina: o.thina,
       total: o.total,
-      minutes_trajet: Math.round(cumulativeMinutes[i])
+      minutes_trajet: Math.round(cumulativeMinutes[i]),
+      localisation_inconnue: false
     }));
+
+    // Commandes prêtes dont l'adresse n'a pas pu être géocodée : on ne peut pas les
+    // intégrer à la tournée optimisée, mais elles ne doivent jamais disparaître.
+    unlocatedOrders.forEach(o => {
+      stops.push({
+        id: o.id,
+        numero_commande: o.numero_commande,
+        nom: o.nom,
+        telephone: o.telephone,
+        adresse: o.adresse,
+        classique: o.classique,
+        thina: o.thina,
+        total: o.total,
+        minutes_trajet: null,
+        localisation_inconnue: true
+      });
+    });
 
     const prepResult = await pool.query(
       "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'en_preparation' AND eta_minutes IS NOT NULL AND eta_set_at IS NOT NULL AND lat IS NOT NULL"
