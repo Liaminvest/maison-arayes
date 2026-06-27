@@ -171,6 +171,10 @@ app.post('/create-checkout-session', async (req, res) => {
   try {
     const { classique, thina, nom, telephone, mode, adresse, promoCode, scheduledFor } = req.body;
 
+    if (mode === 'livraison' && (!adresse || !adresse.trim())) {
+      return res.status(400).json({ error: 'Une adresse est obligatoire pour une livraison à domicile.' });
+    }
+
     const promoValid = !!(PROMO_CODE && promoCode && promoCode.trim().toUpperCase() === PROMO_CODE.trim().toUpperCase());
     const discountFactor = promoValid ? (1 - PROMO_DISCOUNT_PERCENT / 100) : 1;
     const promoSuffix = promoValid ? ` (-${PROMO_DISCOUNT_PERCENT}%)` : '';
