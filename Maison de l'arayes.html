@@ -755,8 +755,8 @@
         </div>
 
         <div class="fg" id="schedule-datetime-fg" style="display:none;">
-          <label>Date et heure souhaitées</label>
-          <input type="datetime-local" id="schedule-datetime" />
+          <label>Créneau souhaité</label>
+          <select id="schedule-datetime"></select>
           <p class="form-note" style="margin-top:6px;">Horaires : Dim 12h30–22h · Lun–Jeu 19h–22h · Fermé Ven &amp; Sam</p>
         </div>
 
@@ -955,9 +955,40 @@
     return date.toLocaleString('fr-CH', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
-  function toLocalDatetimeInputValue(date) {
-    const pad = n => String(n).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  // Liste tous les créneaux de 30 min réellement ouverts dans les prochains jours.
+  function generateSlots() {
+    const now = new Date();
+    const slots = [];
+    for (let i = 0; i < 8; i++) {
+      const day = new Date(now);
+      day.setDate(day.getDate() + i);
+      const win = getDayWindow(day);
+      if (!win) continue;
+      let t = new Date(win.open);
+      while (t <= win.close) {
+        if (t > now) slots.push(new Date(t));
+        t = new Date(t.getTime() + 30 * 60000);
+      }
+    }
+    return slots;
+  }
+
+  function formatSlotLabel(date, now) {
+    const dayDiff = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86400000);
+    const timeStr = date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
+    if (dayDiff === 0) return `Aujourd'hui ${timeStr}`;
+    if (dayDiff === 1) return `Demain ${timeStr}`;
+    const dayName = date.toLocaleDateString('fr-CH', { weekday: 'long' });
+    return `${dayName.charAt(0).toUpperCase()}${dayName.slice(1)} ${timeStr}`;
+  }
+
+  function populateScheduleSelect() {
+    const now = new Date();
+    const slots = generateSlots();
+    scheduleDatetime.innerHTML = slots
+      .map(s => `<option value="${s.toISOString()}">${formatSlotLabel(s, now)}</option>`)
+      .join('');
+    return slots;
   }
 
   const closedNotice = document.getElementById('closed-notice');
@@ -973,20 +1004,16 @@
     const nextOpening = getNextOpening(new Date());
     closedNotice.style.display = 'block';
     closedNoticeText.textContent = nextOpening
-      ? `Vous pouvez programmer votre commande pour la prochaine ouverture : ${formatDateTime(nextOpening)}.`
-      : 'Vous pouvez programmer votre commande pour notre prochaine ouverture.';
+      ? `Nous ne pouvons pas traiter de commande immédiate. Choisissez un créneau à partir de la prochaine ouverture : ${formatDateTime(nextOpening)}.`
+      : 'Nous sommes actuellement fermés.';
     scheduleDatetimeFg.style.display = 'block';
-    if (nextOpening) {
-      scheduleDatetime.value = toLocalDatetimeInputValue(nextOpening);
-      scheduleDatetime.min = toLocalDatetimeInputValue(new Date());
-    }
+    populateScheduleSelect();
   } else {
     scheduleCheckboxFg.style.display = 'block';
     scheduleCheckbox.addEventListener('change', () => {
       scheduleDatetimeFg.style.display = scheduleCheckbox.checked ? 'block' : 'none';
-      if (scheduleCheckbox.checked && !scheduleDatetime.value) {
-        const nextOpening2 = getNextOpening(new Date());
-        if (nextOpening2) scheduleDatetime.value = toLocalDatetimeInputValue(nextOpening2);
+      if (scheduleCheckbox.checked && !scheduleDatetime.options.length) {
+        populateScheduleSelect();
       }
     });
   }
@@ -1061,19 +1088,10 @@
     const wantsSchedule = !shopOpenNow || scheduleCheckbox.checked;
     if (wantsSchedule) {
       if (!scheduleDatetime.value) {
-        alert('Merci de choisir une date et une heure pour votre livraison programmée.');
+        alert("Aucun créneau disponible pour le moment. Contactez-nous via WhatsApp pour passer votre commande.");
         return;
       }
-      const chosen = new Date(scheduleDatetime.value);
-      if (chosen <= new Date()) {
-        alert('La date programmée doit être dans le futur.');
-        return;
-      }
-      if (!isOpenAt(chosen)) {
-        alert('Cet horaire est hors de nos heures d\'ouverture. Horaires : Dim 12h30–22h · Lun–Jeu 19h–22h · Fermé Ven & Sam.');
-        return;
-      }
-      scheduledFor = chosen.toISOString();
+      scheduledFor = scheduleDatetime.value;
     }
 
     const payload = {
