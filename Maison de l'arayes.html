@@ -973,20 +973,17 @@
     return slots;
   }
 
-  function formatSlotLabel(date, now) {
-    const dayDiff = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86400000);
+  function formatSlotLabel(date) {
     const timeStr = date.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
-    if (dayDiff === 0) return `Aujourd'hui ${timeStr}`;
-    if (dayDiff === 1) return `Demain ${timeStr}`;
     const dayName = date.toLocaleDateString('fr-CH', { weekday: 'long' });
-    return `${dayName.charAt(0).toUpperCase()}${dayName.slice(1)} ${timeStr}`;
+    const dateStr = date.toLocaleDateString('fr-CH', { day: '2-digit', month: '2-digit' });
+    return `${dayName.charAt(0).toUpperCase()}${dayName.slice(1)} ${dateStr} ${timeStr}`;
   }
 
   function populateScheduleSelect() {
-    const now = new Date();
     const slots = generateSlots();
     scheduleDatetime.innerHTML = slots
-      .map(s => `<option value="${s.toISOString()}">${formatSlotLabel(s, now)}</option>`)
+      .map(s => `<option value="${s.toISOString()}">${formatSlotLabel(s)}</option>`)
       .join('');
     return slots;
   }
