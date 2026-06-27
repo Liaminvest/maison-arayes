@@ -12,9 +12,21 @@ const PROMO_DISCOUNT_PERCENT = 10;
 const AVERAGE_SPEED_KMH = 30;
 const KITCHEN_CAPACITY = 4;
 const PREP_TIME_MIN = 10;
+const LIVREUR_POSITION_MAX_AGE_MS = 3 * 60 * 1000;
 
 let KITCHEN_LAT = null;
 let KITCHEN_LNG = null;
+let LIVREUR_LAT = null;
+let LIVREUR_LNG = null;
+let LIVREUR_LAST_UPDATE = null;
+
+// Position réelle du livreur si elle a été reçue récemment, sinon la cuisine.
+function getLivreurStartPoint() {
+  if (LIVREUR_LAT !== null && LIVREUR_LAST_UPDATE && (Date.now() - LIVREUR_LAST_UPDATE) < LIVREUR_POSITION_MAX_AGE_MS) {
+    return { lat: LIVREUR_LAT, lng: LIVREUR_LNG };
+  }
+  return { lat: KITCHEN_LAT, lng: KITCHEN_LNG };
+}
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -164,8 +176,9 @@ async function computeOptimizedStops() {
   let cumulativeMinutes = [];
 
   if (readyOrders.length > 0 && KITCHEN_LAT !== null && KITCHEN_LNG !== null) {
+    const startPoint = getLivreurStartPoint();
     try {
-      const coords = [`${KITCHEN_LNG},${KITCHEN_LAT}`, ...readyOrders.map(o => `${o.lng},${o.lat}`)].join(';');
+      const coords = [`${startPoint.lng},${startPoint.lat}`, ...readyOrders.map(o => `${o.lng},${o.lat}`)].join(';');
       const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false&overview=false`;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
@@ -195,8 +208,8 @@ async function computeOptimizedStops() {
       const remaining = [...readyOrders];
       orderedOrders = [];
       cumulativeMinutes = [];
-      let currentLat = KITCHEN_LAT;
-      let currentLng = KITCHEN_LNG;
+      let currentLat = startPoint.lat;
+      let currentLng = startPoint.lng;
       let cumKm = 0;
       while (remaining.length > 0) {
         let nearestIdx = 0;
@@ -234,9 +247,16 @@ async function estimateOrderEta(order) {
     return Math.round(readyInMinutes);
   }
 
-  const { cumulativeMinutes } = await computeOptimizedStops();
+  const { orderedOrders, cumulativeMinutes } = await computeOptimizedStops();
   const remainingRouteTime = cumulativeMinutes.length > 0 ? cumulativeMinutes[cumulativeMinutes.length - 1] : 0;
-  const travelToNewAddress = haversineDistance(KITCHEN_LAT, KITCHEN_LNG, order.lat, order.lng) / AVERAGE_SPEED_KMH * 60;
+
+  // Point depuis lequel estimer le trajet vers la nouvelle adresse : le
+  // dernier arrêt de la tournée en cours, sinon la position réelle du
+  // livreur si elle est récente, sinon la cuisine.
+  const referencePoint = orderedOrders.length > 0
+    ? { lat: orderedOrders[orderedOrders.length - 1].lat, lng: orderedOrders[orderedOrders.length - 1].lng }
+    : getLivreurStartPoint();
+  const travelToNewAddress = haversineDistance(referencePoint.lat, referencePoint.lng, order.lat, order.lng) / AVERAGE_SPEED_KMH * 60;
 
   return Math.round(Math.max(readyInMinutes, remainingRouteTime) + travelToNewAddress);
 }
@@ -461,6 +481,17 @@ app.post('/api/orders/:id/pret', checkAdminPassword, async (req, res) => {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
+});
+
+app.post('/api/livreur/position', checkLivreurPassword, (req, res) => {
+  const { lat, lng } = req.body;
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ error: 'lat et lng (nombres) requis' });
+  }
+  LIVREUR_LAT = lat;
+  LIVREUR_LNG = lng;
+  LIVREUR_LAST_UPDATE = Date.now();
+  res.json({ ok: true });
 });
 
 app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {

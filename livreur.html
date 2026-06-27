@@ -62,6 +62,9 @@
 
   #dashboard { display: none; }
   h1.title { font-size: 22px; margin: 4px 0 16px; }
+  .gps-status { font-size: 13px; color: #8fa0b3; margin: -8px 0 14px; }
+  .gps-status.active { color: #2E9E5B; }
+  .gps-status.error { color: #C0392B; }
 
   .wait-banner {
     background: #F2B134;
@@ -199,6 +202,7 @@
 <div id="dashboard">
   <div class="wrap">
     <h1 class="title">Tournée</h1>
+    <div id="gps-status" class="gps-status">📍 Géolocalisation...</div>
     <div id="wait-banner" class="wait-banner"></div>
     <div id="orders-list"></div>
   </div>
@@ -279,6 +283,45 @@
     document.getElementById('dashboard').style.display = 'block';
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = setInterval(() => tryFetchOrders(password), 15000);
+    startPositionTracking();
+  }
+
+  let lastPositionSend = 0;
+
+  function startPositionTracking() {
+    const gpsStatus = document.getElementById('gps-status');
+    if (!('geolocation' in navigator)) {
+      gpsStatus.textContent = '📍 Géolocalisation non disponible sur cet appareil';
+      gpsStatus.className = 'gps-status error';
+      return;
+    }
+    navigator.geolocation.watchPosition(
+      pos => {
+        gpsStatus.textContent = '📍 Position partagée — calculs basés sur votre position réelle';
+        gpsStatus.className = 'gps-status active';
+        const now = Date.now();
+        if (now - lastPositionSend < 10000) return;
+        lastPositionSend = now;
+        sendPosition(pos.coords.latitude, pos.coords.longitude);
+      },
+      err => {
+        gpsStatus.textContent = '📍 Position non partagée — estimations basées sur la cuisine';
+        gpsStatus.className = 'gps-status error';
+      },
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+    );
+  }
+
+  async function sendPosition(lat, lng) {
+    try {
+      await fetch('/api/livreur/position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-livreur-password': password },
+        body: JSON.stringify({ lat, lng })
+      });
+    } catch (err) {
+      // on réessaiera à la prochaine mise à jour de position
+    }
   }
 
   function renderRoute(data) {
