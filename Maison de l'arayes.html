@@ -919,12 +919,12 @@
         <div class="fg">
           <label>Mode de récupération</label>
           <select id="mode-select">
+            <option value="retrait" selected>Retrait sur place (gratuit)</option>
             <option value="livraison">Livraison à domicile</option>
-            <option value="retrait">Retrait sur place (gratuit)</option>
           </select>
         </div>
 
-        <div class="fg" id="quartier-fg">
+        <div class="fg" id="quartier-fg" style="display:none;">
           <label>Quartier</label>
           <select id="quartier">
             <option value="">Choisissez votre quartier</option>
@@ -943,7 +943,7 @@
           😊 Nous livrons uniquement sur la Rive Gauche de Genève. Vous pouvez venir récupérer votre commande sur place, ou nous pouvons vous livrer au point le plus proche de chez vous sans sortir de la Rive Gauche — précisez-le dans votre adresse, on s'arrange par WhatsApp.
         </p>
 
-        <div class="fg" id="adresse-fg">
+        <div class="fg" id="adresse-fg" style="display:none;">
           <label>Adresse complète</label>
           <textarea id="adresse" placeholder="Rue, numéro, code postal, Genève"></textarea>
         </div>
