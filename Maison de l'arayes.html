@@ -1096,6 +1096,19 @@
     return { open, close };
   }
 
+  // On prend les commandes dès l'ouverture, mais la première livraison a
+  // besoin d'un temps de préparation : les soirs Lun-Jeu (19h), le premier
+  // créneau de précommande proposé est donc 19h15 — le dimanche (12h30)
+  // n'est pas concerné.
+  const FIRST_ORDER_DELAY_MIN = { 0: 0, 1: 15, 2: 15, 3: 15, 4: 15 };
+
+  function getOrderWindow(date) {
+    const win = getDayWindow(date);
+    if (!win) return null;
+    const delay = FIRST_ORDER_DELAY_MIN[date.getDay()] || 0;
+    return { open: new Date(win.open.getTime() + delay * 60000), close: win.close };
+  }
+
   function isOpenAt(date) {
     const win = getDayWindow(date);
     return !!win && date >= win.open && date <= win.close;
@@ -1144,7 +1157,7 @@
       const day = new Date(now);
       day.setDate(day.getDate() + i);
       if (fullDates.has(dateKey(day))) continue;
-      const win = getDayWindow(day);
+      const win = getOrderWindow(day);
       if (!win) continue;
       let t = new Date(win.open);
       while (t <= win.close) {
