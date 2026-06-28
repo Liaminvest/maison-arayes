@@ -1219,7 +1219,7 @@
     if (capacityData && capacityData.today && capacityData.today.open) {
       capacityCounter.style.display = 'block';
       const r = capacityData.today.remaining;
-      capacityCounter.textContent = `🔥 Encore ${r} commande${r === 1 ? '' : 's'} possible${r === 1 ? '' : 's'} aujourd'hui`;
+      capacityCounter.textContent = `🔥 Encore ${r} Arayes disponible${r === 1 ? '' : 's'} aujourd'hui`;
     }
 
     if (!shopOpenNow) {
@@ -1367,10 +1367,12 @@
       if (data.url) {
         window.location.href = data.url;
       } else if (data.full) {
-        const dateUsed = scheduledFor ? dateKey(new Date(scheduledFor)) : dateKey(new Date());
-        fullDates.add(dateUsed);
+        if (!data.remaining) {
+          const dateUsed = scheduledFor ? dateKey(new Date(scheduledFor)) : dateKey(new Date());
+          fullDates.add(dateUsed);
+        }
         const nextMsg = data.nextAvailableDate ? ` Voulez-vous précommander pour ${formatDateLabel(data.nextAvailableDate)} ?` : '';
-        alert(`🔥 Désolé, nous sommes victimes de notre succès : il n'y a plus d'Arayes disponibles pour ce soir-là.${nextMsg}`);
+        alert(`🔥 ${data.error || "Désolé, nous sommes victimes de notre succès : il n'y a plus d'Arayes disponibles pour ce soir-là."}${nextMsg}`);
         scheduleDatetimeFg.style.display = 'block';
         populateScheduleSelect();
         payBtn.disabled = false;

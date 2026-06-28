@@ -165,16 +165,19 @@ function weekdayOfDateStr(dateStr) {
   return new Date(dateStr + 'T12:00:00Z').getUTCDay();
 }
 
-// Nombre de commandes déjà comptabilisées pour un soir donné : une commande
-// programmée compte pour son scheduled_for, une commande immédiate pour son
-// created_at — les deux convertis en date locale de Genève.
+// Nombre d'Arayes (Classique + XL) déjà vendus pour un soir donné — tant que
+// le stock n'est pas entièrement réapprovisionné, c'est chaque Arayes qui
+// compte vers la limite de 25, pas chaque commande (une commande de 5
+// Arayes compte pour 5). Une commande programmée compte pour son
+// scheduled_for, une commande immédiate pour son created_at — les deux
+// convertis en date locale de Genève.
 async function getOrderCountForDate(dateStr) {
   const result = await pool.query(
-    `SELECT COUNT(*) FROM orders
+    `SELECT COALESCE(SUM(classique + xl), 0) AS total FROM orders
      WHERE to_char((COALESCE(scheduled_for, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Zurich', 'YYYY-MM-DD') = $1`,
     [dateStr]
   );
-  return parseInt(result.rows[0].count, 10);
+  return parseInt(result.rows[0].total, 10);
 }
 
 // Premier soir ouvert et non complet après la date donnée — utilisé pour
@@ -486,18 +489,24 @@ app.post('/create-checkout-session', async (req, res) => {
       return res.status(400).json({ error: 'Une adresse est obligatoire pour une livraison à domicile.' });
     }
 
-    // Capacité de 25 commandes par soir : on vérifie le soir visé par CETTE
-    // commande (programmée ou immédiate) avant de créer la session Stripe.
+    // Capacité de 25 Arayes (Classique + XL) par soir, tant que le stock
+    // n'est pas entièrement réapprovisionné : chaque Arayes vendu compte vers
+    // la limite, pas chaque commande (5 Arayes dans une commande = 5).
     const serviceDateStr = scheduledFor ? zurichDateStr(new Date(scheduledFor)) : zurichDateStr(new Date());
     if (!OPEN_WEEKDAYS.has(weekdayOfDateStr(serviceDateStr))) {
       return res.status(400).json({ error: 'Nous sommes fermés ce jour-là.' });
     }
+    const requestedArayes = (parseInt(classique, 10) || 0) + (parseInt(xl, 10) || 0);
     const countForServiceDate = await getOrderCountForDate(serviceDateStr);
-    if (countForServiceDate >= DAILY_ORDER_CAPACITY) {
+    if (countForServiceDate + requestedArayes > DAILY_ORDER_CAPACITY) {
       const nextAvailableDate = await findNextAvailableDate(serviceDateStr);
+      const remaining = Math.max(0, DAILY_ORDER_CAPACITY - countForServiceDate);
       return res.status(409).json({
-        error: 'Désolé, nous sommes victimes de notre succès : il n\'y a plus d\'Arayes disponibles ce soir-là.',
+        error: remaining > 0
+          ? `Désolé, il ne reste plus que ${remaining} Arayes disponible${remaining === 1 ? '' : 's'} ce soir-là.`
+          : 'Désolé, nous sommes victimes de notre succès : il n\'y a plus d\'Arayes disponibles ce soir-là.',
         full: true,
+        remaining,
         nextAvailableDate
       });
     }
@@ -609,9 +618,10 @@ app.get('/avis', (req, res) => {
   res.sendFile(__dirname + '/avis.html');
 });
 
-// État de la capacité (25 commandes/soir) : utilisé par le site pour
-// afficher le compteur et limiter les créneaux de précommande proposés
-// aux soirs encore disponibles.
+// État de la capacité (25 Arayes/soir, tant que le stock n'est pas
+// entièrement réapprovisionné) : utilisé par le site pour afficher le
+// compteur et limiter les créneaux de précommande proposés aux soirs
+// encore disponibles.
 app.get('/api/capacity', async (req, res) => {
   try {
     const todayStr = zurichDateStr(new Date());
