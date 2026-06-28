@@ -608,7 +608,7 @@
       <div class="recap-card"><div class="lbl">Chiffre d'affaires</div><div class="val">${totalCA.toFixed(2)} CHF</div></div>
       <div class="recap-card"><div class="lbl">Arayes Classique</div><div class="val">${totalClassique}</div></div>
       <div class="recap-card"><div class="lbl">Arayes XL</div><div class="val">${totalXL}</div></div>
-      <div class="recap-card"><div class="lbl">Pots de Thina</div><div class="val">${totalThina}</div></div>
+      <div class="recap-card"><div class="lbl">Pots de Tahini maison</div><div class="val">${totalThina}</div></div>
     `;
 
     if (visibleOrders.length === 0) {
@@ -680,7 +680,7 @@
             <span class="badge ${o.statut}">${STATUT_LABELS[o.statut] || o.statut}</span>
           </div>
           ${scheduledBlock}
-          <div class="order-detail">${o.classique || 0}× Classique · ${o.xl || 0}× XL · ${o.thina || 0}× Thina · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
+          <div class="order-detail">${o.classique || 0}× Classique · ${o.xl || 0}× XL · ${o.thina || 0}× Tahini maison · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
           ${adresseLine}
           ${remarquesLine}
           ${cashPickupLine}

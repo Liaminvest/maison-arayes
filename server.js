@@ -521,7 +521,7 @@ app.post('/create-checkout-session', async (req, res) => {
     const items = [];
     if (classique > 0) items.push({ name: `Arayes Classique${promoSuffix}`, unit_amount: Math.round(1295 * discountFactor), quantity: classique });
     if (xl > 0) items.push({ name: `Arayes XL${promoSuffix}`, unit_amount: Math.round(1595 * discountFactor), quantity: xl });
-    if (thina > 0) items.push({ name: `Pot de Thina${promoSuffix}`, unit_amount: Math.round(80 * discountFactor), quantity: thina });
+    if (thina > 0) items.push({ name: `Pot de Tahini maison${promoSuffix}`, unit_amount: Math.round(80 * discountFactor), quantity: thina });
     if (mode === 'livraison') items.push({ name: 'Frais de livraison', unit_amount: 500, quantity: 1 });
 
     const fullTotalCents = items.reduce((sum, it) => sum + it.unit_amount * it.quantity, 0);
