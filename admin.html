@@ -144,6 +144,14 @@
     margin: 6px 0;
     font-weight: 700;
   }
+  .order-cash-pickup {
+    font-size: 13px;
+    color: var(--white);
+    background: #2E9E5B;
+    padding: 8px 10px;
+    margin: 6px 0;
+    font-weight: 700;
+  }
   .order-scheduled {
     font-family: var(--fn-head);
     font-size: 17px;
@@ -464,6 +472,10 @@
       const time = new Date(o.created_at).toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       const adresseLine = o.mode === 'livraison' && o.adresse ? `<div class="order-detail">📍 ${escapeHtml(o.adresse)}</div>` : '';
       const remarquesLine = o.remarques ? `<div class="order-remarques">📝 ${escapeHtml(o.remarques)}</div>` : '';
+      const balanceDue = parseFloat(o.total || 0) - parseFloat(o.paid_online || 0);
+      const cashPickupLine = o.cash_on_pickup
+        ? `<div class="order-cash-pickup">💰 À encaisser sur place : ${balanceDue.toFixed(2)} CHF (acompte ${parseFloat(o.paid_online || 0).toFixed(2)} CHF déjà payé en ligne)</div>`
+        : '';
       const statusBtns = STATUTS.map(s =>
         `<button class="status-btn ${s === o.statut ? 'active' : ''}" onclick="setStatus(${o.id}, '${s}')">${STATUT_LABELS[s]}</button>`
       ).join('');
@@ -510,6 +522,7 @@
           <div class="order-detail">${o.classique || 0}× Classique · ${o.xl || 0}× XL · ${o.thina || 0}× Thina · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
           ${adresseLine}
           ${remarquesLine}
+          ${cashPickupLine}
           <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
           <div class="status-row">${pretBtn}${statusBtns}</div>
         </div>

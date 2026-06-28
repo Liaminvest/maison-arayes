@@ -68,6 +68,8 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS thina INT DEFAULT 0`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS xl INT DEFAULT 0`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_online NUMERIC(10,2)`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cash_on_pickup BOOLEAN DEFAULT false`);
   await pool.query(`ALTER TABLE orders DROP COLUMN IF EXISTS eta`);
   // eta_minutes/eta_set_at étaient renseignés manuellement par un endpoint
   // jamais appelé depuis l'admin ; remplacés par l'estimation automatique
@@ -451,14 +453,16 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     const classique = parseInt(metadata.classique || '0', 10);
     const xl = parseInt(metadata.xl || '0', 10);
     const thina = parseInt(metadata.thina || '0', 10);
-    const total = (session.amount_total || 0) / 100;
+    const paidOnline = (session.amount_total || 0) / 100;
+    const total = metadata.fullTotal ? parseFloat(metadata.fullTotal) : paidOnline;
+    const cashOnPickup = metadata.cashOnPickup === 'true';
     const scheduledFor = metadata.scheduledFor ? new Date(metadata.scheduledFor) : null;
 
     try {
       const inserted = await pool.query(
-        `INSERT INTO orders (nom, telephone, mode, adresse, classique, xl, thina, total, scheduled_for, stripe_session_id, remarques)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, xl, thina, total, scheduledFor, session.id, metadata.remarques || '']
+        `INSERT INTO orders (nom, telephone, mode, adresse, classique, xl, thina, total, scheduled_for, stripe_session_id, remarques, paid_online, cash_on_pickup)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, xl, thina, total, scheduledFor, session.id, metadata.remarques || '', paidOnline, cashOnPickup]
       );
       const orderId = inserted.rows[0].id;
       const numeroCommande = `CMD-${String(orderId).padStart(6, '0')}`;
@@ -484,56 +488,47 @@ app.use(express.static(__dirname));
 
 app.post('/create-checkout-session', async (req, res) => {
   try {
-    const { classique, xl, thina, nom, telephone, mode, adresse, remarques, promoCode, scheduledFor } = req.body;
+    const { classique, xl, thina, nom, telephone, mode, adresse, remarques, promoCode, scheduledFor, payOnPickup } = req.body;
 
     if (mode === 'livraison' && (!adresse || !adresse.trim())) {
       return res.status(400).json({ error: 'Une adresse est obligatoire pour une livraison à domicile.' });
     }
 
+    // Payer le solde en espèces/Twint sur place n'est proposé que pour le retrait.
+    const cashOnPickup = !!(payOnPickup && mode === 'retrait');
+
     const promoValid = !!(PROMO_CODE && promoCode && promoCode.trim().toUpperCase() === PROMO_CODE.trim().toUpperCase());
     const discountFactor = promoValid ? (1 - PROMO_DISCOUNT_PERCENT / 100) : 1;
     const promoSuffix = promoValid ? ` (-${PROMO_DISCOUNT_PERCENT}%)` : '';
 
-    const line_items = [];
-    if (classique > 0) {
-      line_items.push({
+    const items = [];
+    if (classique > 0) items.push({ name: `Arayes Classique${promoSuffix}`, unit_amount: Math.round(1295 * discountFactor), quantity: classique });
+    if (xl > 0) items.push({ name: `Arayes XL${promoSuffix}`, unit_amount: Math.round(1495 * discountFactor), quantity: xl });
+    if (thina > 0) items.push({ name: `Pot de Thina${promoSuffix}`, unit_amount: Math.round(80 * discountFactor), quantity: thina });
+    if (mode === 'livraison') items.push({ name: 'Frais de livraison', unit_amount: 500, quantity: 1 });
+
+    const fullTotalCents = items.reduce((sum, it) => sum + it.unit_amount * it.quantity, 0);
+
+    let line_items;
+    if (cashOnPickup) {
+      const depositCents = Math.max(200, Math.round(fullTotalCents * 0.15));
+      line_items = [{
         price_data: {
           currency: 'chf',
-          product_data: { name: `Arayes Classique${promoSuffix}` },
-          unit_amount: Math.round(1295 * discountFactor)
-        },
-        quantity: classique
-      });
-    }
-    if (xl > 0) {
-      line_items.push({
-        price_data: {
-          currency: 'chf',
-          product_data: { name: `Arayes XL${promoSuffix}` },
-          unit_amount: Math.round(1495 * discountFactor)
-        },
-        quantity: xl
-      });
-    }
-    if (thina > 0) {
-      line_items.push({
-        price_data: {
-          currency: 'chf',
-          product_data: { name: `Pot de Thina${promoSuffix}` },
-          unit_amount: Math.round(80 * discountFactor)
-        },
-        quantity: thina
-      });
-    }
-    if (mode === 'livraison') {
-      line_items.push({
-        price_data: {
-          currency: 'chf',
-          product_data: { name: 'Frais de livraison' },
-          unit_amount: 500
+          product_data: { name: 'Acompte (15%) — solde à régler sur place en espèces/Twint' },
+          unit_amount: depositCents
         },
         quantity: 1
-      });
+      }];
+    } else {
+      line_items = items.map(it => ({
+        price_data: {
+          currency: 'chf',
+          product_data: { name: it.name },
+          unit_amount: it.unit_amount
+        },
+        quantity: it.quantity
+      }));
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -546,7 +541,9 @@ app.post('/create-checkout-session', async (req, res) => {
         xl: String(xl),
         thina: String(thina),
         scheduledFor: scheduledFor || '',
-        remarques: (remarques || '').slice(0, 500)
+        remarques: (remarques || '').slice(0, 500),
+        cashOnPickup: cashOnPickup ? 'true' : 'false',
+        fullTotal: (fullTotalCents / 100).toFixed(2)
       },
       success_url: BASE_URL + '/success.html?session_id={CHECKOUT_SESSION_ID}',
       cancel_url: BASE_URL + '/cancel.html'
@@ -845,10 +842,10 @@ app.get('/api/orders/livraison', checkLivreurPassword, async (req, res) => {
 app.get('/api/orders/export', checkAdminPassword, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
-    const header = ['numero_commande', 'date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'xl', 'thina', 'total', 'statut', 'remarques'];
+    const header = ['numero_commande', 'date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'xl', 'thina', 'total', 'statut', 'remarques', 'paid_online', 'cash_on_pickup'];
     const lines = [header.map(csvField).join(',')];
     for (const r of result.rows) {
-      lines.push([r.numero_commande, r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.xl, r.thina, r.total, r.statut, r.remarques].map(csvField).join(','));
+      lines.push([r.numero_commande, r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.xl, r.thina, r.total, r.statut, r.remarques, r.paid_online, r.cash_on_pickup].map(csvField).join(','));
     }
     const csv = lines.join('\r\n');
 

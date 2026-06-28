@@ -821,7 +821,7 @@
             <div class="cmd-ic">💳</div>
             <div>
               <div class="cmd-lbl">Paiement</div>
-              <div class="cmd-val">Twint · Virement · Espèces</div>
+              <div class="cmd-val">Carte en ligne · Twint/Espèces possible sur place pour le retrait</div>
             </div>
           </div>
         </div>
@@ -922,6 +922,14 @@
             <option value="retrait" selected>Retrait sur place (gratuit)</option>
             <option value="livraison">Livraison à domicile</option>
           </select>
+        </div>
+
+        <div class="fg" id="cash-pickup-fg">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; text-transform:none; font-family:var(--fn-body); font-weight:600; color:var(--cream); font-size:14px;">
+            <input type="checkbox" id="cash-pickup-checkbox" style="width:18px; height:18px;" />
+            💰 Payer le solde en espèces/Twint sur place
+          </label>
+          <p class="form-note" id="cash-pickup-note" style="display:none; margin-top:8px;"></p>
         </div>
 
         <div class="fg" id="quartier-fg" style="display:none;">
@@ -1134,11 +1142,19 @@
   const quartierFg = document.getElementById('quartier-fg');
   const quartierSelect = document.getElementById('quartier');
   const quartierWarning = document.getElementById('quartier-warning');
+  const cashPickupFg = document.getElementById('cash-pickup-fg');
+  const cashPickupCheckbox = document.getElementById('cash-pickup-checkbox');
+  const cashPickupNote = document.getElementById('cash-pickup-note');
   modeSelect.addEventListener('change', e => {
     const isRetrait = e.target.value === 'retrait';
     adresseFg.style.display = isRetrait ? 'none' : 'block';
     quartierFg.style.display = isRetrait ? 'none' : 'block';
     quartierWarning.style.display = (!isRetrait && quartierSelect.value === 'autre') ? 'block' : 'none';
+    cashPickupFg.style.display = isRetrait ? 'block' : 'none';
+    if (!isRetrait) {
+      cashPickupCheckbox.checked = false;
+      cashPickupNote.style.display = 'none';
+    }
     updateTotal();
   });
 
@@ -1156,10 +1172,20 @@
     const livraisonFee = modeSelect.value === 'livraison' ? 5 : 0;
     const t = parseInt(qtyC.value) * 12.95 + parseInt(qtyXL.value) * 14.95 + parseInt(qtyT.value) * 0.80 + livraisonFee;
     totalVal.textContent = t.toFixed(2) + ' CHF';
+
+    if (cashPickupCheckbox.checked) {
+      const deposit = Math.max(2, t * 0.15);
+      const balance = t - deposit;
+      cashPickupNote.textContent = `Acompte à payer maintenant : ${deposit.toFixed(2)} CHF — solde sur place : ${balance.toFixed(2)} CHF`;
+      cashPickupNote.style.display = 'block';
+    } else {
+      cashPickupNote.style.display = 'none';
+    }
   }
   qtyC.addEventListener('change', updateTotal);
   qtyXL.addEventListener('change', updateTotal);
   qtyT.addEventListener('change', updateTotal);
+  cashPickupCheckbox.addEventListener('change', updateTotal);
 
   // Stripe checkout
   const payBtn = document.getElementById('pay-btn');
@@ -1217,7 +1243,8 @@
       adresse,
       remarques: document.getElementById('remarques').value.trim(),
       promoCode: document.getElementById('promo-code').value.trim(),
-      scheduledFor
+      scheduledFor,
+      payOnPickup: mode === 'retrait' && cashPickupCheckbox.checked
     };
 
     payBtn.disabled = true;
