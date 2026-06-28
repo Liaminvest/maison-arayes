@@ -1,12 +1,18 @@
 const express = require('express');
 const { Pool } = require('pg');
+const { Resend } = require('resend');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const KITCHEN_ADDRESS = process.env.KITCHEN_ADDRESS;
 const PROMO_CODE = process.env.PROMO;
+// Adresse de notification des avis clients — jamais transmise au navigateur,
+// utilisée uniquement côté serveur pour l'envoi par Resend.
+const REVIEW_NOTIFY_EMAIL = process.env.REVIEW_NOTIFY_EMAIL;
+const RESEND_FROM = process.env.RESEND_FROM || 'onboarding@resend.dev';
 const PROMO_DISCOUNT_PERCENT = 10;
 const AVERAGE_SPEED_KMH = 30;
 // Réalité de la cuisson : 3 poêles × 2 triangles = 6 triangles = 2 commandes
@@ -539,6 +545,38 @@ app.get('/admin', (req, res) => {
 
 app.get('/livreur', (req, res) => {
   res.sendFile(__dirname + '/livreur.html');
+});
+
+app.get('/avis', (req, res) => {
+  res.sendFile(__dirname + '/avis.html');
+});
+
+app.post('/api/avis', async (req, res) => {
+  try {
+    const { message, rating } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: "Merci d'écrire un message." });
+    }
+
+    const ratingNum = Number.isInteger(rating) && rating >= 0 && rating <= 5 ? rating : null;
+    const stars = ratingNum !== null ? '⭐'.repeat(ratingNum) + '☆'.repeat(5 - ratingNum) + ` (${ratingNum}/5)` : 'Non noté';
+
+    if (REVIEW_NOTIFY_EMAIL && process.env.RESEND_API_KEY) {
+      await resend.emails.send({
+        from: RESEND_FROM,
+        to: REVIEW_NOTIFY_EMAIL,
+        subject: `Nouvel avis — ${stars}`,
+        text: `Note : ${stars}\n\nMessage :\n${message.trim()}`
+      });
+    } else {
+      console.error('Avis reçu mais RESEND_API_KEY ou REVIEW_NOTIFY_EMAIL non configuré.');
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Erreur lors de l'envoi de l'avis:", err.message);
+    res.status(500).json({ error: 'Une erreur est survenue, merci de réessayer.' });
+  }
 });
 
 app.get('/api/orders', checkAdminPassword, async (req, res) => {
