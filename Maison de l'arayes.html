@@ -658,7 +658,7 @@
         <li><a href="#arayes">Les arayes</a></li>
         <li><a href="#commander">Commander</a></li>
       </ul>
-      <a href="#commander" class="nav-btn">Commander ce soir</a>
+      <a href="#commander" class="nav-btn">Commander aujourd'hui</a>
       <button class="burger" id="burger" aria-label="Menu">
         <span></span><span></span><span></span>
       </button>
@@ -703,7 +703,7 @@
         </p>
 
         <div class="hero-ctas fu d3">
-          <a href="#commander" class="cta-primary">Commander ce soir →</a>
+          <a href="#commander" class="cta-primary">Commander aujourd'hui →</a>
           <a href="#arayes" class="cta-ghost">Voir le menu</a>
         </div>
         <div class="hand-accent fu d4" style="margin-top:22px;">juste du bon, livré chaud ✦</div>
@@ -1206,7 +1206,7 @@
     if (capacityData && capacityData.today && capacityData.today.open) {
       capacityCounter.style.display = 'block';
       const r = capacityData.today.remaining;
-      capacityCounter.textContent = `🔥 Encore ${r} commande${r === 1 ? '' : 's'} possible${r === 1 ? '' : 's'} ce soir`;
+      capacityCounter.textContent = `🔥 Encore ${r} commande${r === 1 ? '' : 's'} possible${r === 1 ? '' : 's'} aujourd'hui`;
     }
 
     if (!shopOpenNow) {
