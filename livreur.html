@@ -148,6 +148,66 @@
     margin: 6px 0 14px;
   }
 
+  .top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .btn-logout {
+    background: transparent;
+    border: 1px solid #ffffff33;
+    color: #c7d0db;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  @keyframes pulse-gold {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(196, 146, 58, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(196, 146, 58, 0); }
+  }
+  .proposal-card {
+    background: #1a2838;
+    border: 2px solid var(--gold);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: pulse-gold 1.5s infinite;
+  }
+  .proposal-badge {
+    display: inline-block;
+    background: var(--gold);
+    color: #1a1208;
+    font-weight: 800;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    padding: 5px 12px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+  }
+  .proposal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .btn-accept, .btn-decline {
+    flex: 1;
+    border: none;
+    padding: 16px;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-accept { background: #2E9E5B; color: #fff; }
+  .btn-decline { background: transparent; border: 1px solid #C0392B; color: #C0392B; }
+
   .empty { color: #8fa0b3; padding: 60px 20px; text-align: center; font-size: 18px; }
 
   .sound-banner {
@@ -201,8 +261,12 @@
 
 <div id="dashboard">
   <div class="wrap">
-    <h1 class="title">Tournée</h1>
+    <div class="top-row">
+      <h1 class="title">Tournée</h1>
+      <button class="btn-logout" onclick="logout()">Déconnecter</button>
+    </div>
     <div id="gps-status" class="gps-status">📍 Géolocalisation...</div>
+    <div id="proposal-zone"></div>
     <div id="wait-banner" class="wait-banner"></div>
     <div id="orders-list"></div>
   </div>
@@ -216,6 +280,8 @@
   let soundEnabled = false;
   let seenStopIds = new Set();
   let firstLoad = true;
+  let seenProposalId = null;
+  let geoWatchId = null;
 
   function playBeep(frequencies, duration = 350, gap = 150) {
     if (!soundEnabled) return;
@@ -251,6 +317,14 @@
     soundEnabled = true;
     playBeep([880]);
     document.getElementById('sound-banner').style.display = 'none';
+  }
+
+  function speak(text) {
+    if (!soundEnabled) return;
+    if (!('speechSynthesis' in window)) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'fr-FR';
+    speechSynthesis.speak(utterance);
   }
 
   async function login() {
@@ -295,7 +369,7 @@
       gpsStatus.className = 'gps-status error';
       return;
     }
-    navigator.geolocation.watchPosition(
+    geoWatchId = navigator.geolocation.watchPosition(
       pos => {
         gpsStatus.textContent = '📍 Position partagée — calculs basés sur votre position réelle';
         gpsStatus.className = 'gps-status active';
@@ -325,9 +399,37 @@
   }
 
   function renderRoute(data) {
-    const { stops, wait_suggestion, message } = data;
+    const { stops, wait_suggestion, proposal, message } = data;
     const banner = document.getElementById('wait-banner');
     const container = document.getElementById('orders-list');
+    const proposalZone = document.getElementById('proposal-zone');
+
+    if (proposal) {
+      if (seenProposalId !== proposal.id) {
+        seenProposalId = proposal.id;
+        playBeep([660, 880, 1100, 1300]);
+        setTimeout(() => speak('Nouvelle commande'), 1200);
+      }
+      const declineBtn = proposal.can_decline
+        ? `<button class="btn-decline" onclick="declineProposal(${proposal.id})">❌ Décliner</button>`
+        : '';
+      proposalZone.innerHTML = `
+        <div class="proposal-card">
+          <div class="proposal-badge">🆕 Nouvelle commande disponible</div>
+          <div class="order-name">${escapeHtml(proposal.nom || '—')}${proposal.numero_commande ? ' · ' + escapeHtml(proposal.numero_commande) : ''}</div>
+          <div class="order-adresse">📍 ${escapeHtml(proposal.adresse || 'Adresse non renseignée')}</div>
+          <div class="order-detail">${proposal.classique || 0}× Classique · ${proposal.thina || 0}× Thina</div>
+          <div class="order-total">${parseFloat(proposal.total || 0).toFixed(2)} CHF</div>
+          <div class="proposal-actions">
+            <button class="btn-accept" onclick="acceptProposal(${proposal.id})">✅ Accepter</button>
+            ${declineBtn}
+          </div>
+        </div>
+      `;
+    } else {
+      seenProposalId = null;
+      proposalZone.innerHTML = '';
+    }
 
     if (wait_suggestion) {
       banner.textContent = `⏳ Attends ~${wait_suggestion.minutes_restantes} min - une commande proche sera bientôt prête`;
@@ -377,6 +479,56 @@
         }
       });
     }
+  }
+
+  async function acceptProposal(id) {
+    try {
+      await fetch(`/api/orders/${id}/accept`, {
+        method: 'POST',
+        headers: { 'x-livreur-password': password }
+      });
+      tryFetchOrders(password);
+    } catch (err) {
+      alert("Erreur lors de l'acceptation de la commande.");
+    }
+  }
+
+  async function declineProposal(id) {
+    if (!confirm('Décliner cette commande ? Elle sera proposée à un autre livreur.')) return;
+    try {
+      const res = await fetch(`/api/orders/${id}/decline`, {
+        method: 'POST',
+        headers: { 'x-livreur-password': password }
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Impossible de décliner cette commande.');
+      }
+      tryFetchOrders(password);
+    } catch (err) {
+      alert('Erreur lors du déclin de la commande.');
+    }
+  }
+
+  async function logout() {
+    try {
+      await fetch('/api/livreur/logout', {
+        method: 'POST',
+        headers: { 'x-livreur-password': password }
+      });
+    } catch (err) {
+      // on se déconnecte localement même si l'appel échoue
+    }
+    if (refreshTimer) clearInterval(refreshTimer);
+    if (geoWatchId !== null) navigator.geolocation.clearWatch(geoWatchId);
+    localStorage.removeItem('livreurPassword');
+    password = '';
+    seenStopIds = new Set();
+    seenProposalId = null;
+    firstLoad = true;
+    document.getElementById('dashboard').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
+    document.getElementById('login-input').value = '';
   }
 
   function confirmLivre(event, id) {

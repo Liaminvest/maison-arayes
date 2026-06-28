@@ -5,7 +5,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const LIVREUR_PASSWORD = process.env.LIVREUR_PASSWORD;
 const KITCHEN_ADDRESS = process.env.KITCHEN_ADDRESS;
 const PROMO_CODE = process.env.PROMO;
 const PROMO_DISCOUNT_PERCENT = 10;
@@ -13,17 +12,36 @@ const AVERAGE_SPEED_KMH = 30;
 const KITCHEN_CAPACITY = 4;
 const PREP_TIME_MIN = 10;
 const LIVREUR_POSITION_MAX_AGE_MS = 3 * 60 * 1000;
+const LIVREUR_HEARTBEAT_TIMEOUT_MS = 45 * 1000;
+const PROPOSAL_TIMEOUT_MS = 60 * 1000;
 
 let KITCHEN_LAT = null;
 let KITCHEN_LNG = null;
-let LIVREUR_LAT = null;
-let LIVREUR_LNG = null;
-let LIVREUR_LAST_UPDATE = null;
 
-// Position réelle du livreur si elle a été reçue récemment, sinon la cuisine.
-function getLivreurStartPoint() {
-  if (LIVREUR_LAT !== null && LIVREUR_LAST_UPDATE && (Date.now() - LIVREUR_LAST_UPDATE) < LIVREUR_POSITION_MAX_AGE_MS) {
-    return { lat: LIVREUR_LAT, lng: LIVREUR_LNG };
+// Un livreur par variable d'env LIVREUR_PASSWORD_<NOM> — autant qu'on en définit.
+const LIVREUR_PASSWORDS = {};
+Object.keys(process.env).forEach(key => {
+  const match = key.match(/^LIVREUR_PASSWORD_(.+)$/);
+  if (match && process.env[key]) LIVREUR_PASSWORDS[match[1]] = process.env[key];
+});
+
+// État en mémoire de chaque livreur connu : position, dernière activité, en ligne ou pas.
+const livreurs = {};
+function ensureLivreurEntry(name) {
+  if (!livreurs[name]) livreurs[name] = { lat: null, lng: null, lastSeen: 0, online: false };
+  return livreurs[name];
+}
+
+function getOnlineLivreurNames() {
+  const now = Date.now();
+  return Object.keys(livreurs).filter(name => livreurs[name].online && (now - livreurs[name].lastSeen) < LIVREUR_HEARTBEAT_TIMEOUT_MS);
+}
+
+// Position réelle d'un livreur si reçue récemment, sinon la cuisine.
+function getLivreurPosition(name) {
+  const entry = livreurs[name];
+  if (entry && entry.lat !== null && (Date.now() - entry.lastSeen) < LIVREUR_POSITION_MAX_AGE_MS) {
+    return { lat: entry.lat, lng: entry.lng };
   }
   return { lat: KITCHEN_LAT, lng: KITCHEN_LNG };
 }
@@ -57,6 +75,10 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS numero_commande TEXT`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stripe_session_id TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS assigned_livreur TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS proposal_accepted BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_by TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS proposed_at TIMESTAMP`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_status_log (
       id SERIAL PRIMARY KEY,
@@ -161,12 +183,13 @@ async function getCookingRemainingMinutes() {
   });
 }
 
-// Cœur de la tournée optimisée : récupère les commandes prêtes en livraison,
-// les ordonne via OSRM (repli plus-proche-voisin si indisponible), et renvoie
-// aussi celles dont l'adresse n'a pas pu être géolocalisée.
-async function computeOptimizedStops() {
+// Cœur de la tournée optimisée d'UN livreur donné : ses commandes prêtes et
+// acceptées, ordonnées via OSRM depuis sa position réelle (repli plus-proche-
+// voisin si indisponible), plus celles dont l'adresse n'a pas pu être géolocalisée.
+async function computeOptimizedStops(livreurName) {
   const readyResult = await pool.query(
-    "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'pret' ORDER BY created_at ASC"
+    "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'pret' AND assigned_livreur = $1 AND proposal_accepted = true ORDER BY created_at ASC",
+    [livreurName]
   );
   const allReady = readyResult.rows;
   const readyOrders = allReady.filter(o => o.lat !== null && o.lng !== null);
@@ -176,7 +199,7 @@ async function computeOptimizedStops() {
   let cumulativeMinutes = [];
 
   if (readyOrders.length > 0 && KITCHEN_LAT !== null && KITCHEN_LNG !== null) {
-    const startPoint = getLivreurStartPoint();
+    const startPoint = getLivreurPosition(livreurName);
     try {
       const coords = [`${startPoint.lng},${startPoint.lat}`, ...readyOrders.map(o => `${o.lng},${o.lat}`)].join(';');
       const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false&overview=false`;
@@ -231,6 +254,88 @@ async function computeOptimizedStops() {
   return { orderedOrders, cumulativeMinutes, unlocatedOrders };
 }
 
+async function getActiveOrderCountsByLivreur() {
+  const result = await pool.query(`
+    SELECT assigned_livreur, COUNT(*) AS count FROM orders
+    WHERE mode = 'livraison' AND statut = 'pret' AND proposal_accepted = true AND assigned_livreur IS NOT NULL
+    GROUP BY assigned_livreur
+  `);
+  const counts = {};
+  result.rows.forEach(r => { counts[r.assigned_livreur] = parseInt(r.count, 10); });
+  return counts;
+}
+
+// Choisit, parmi les livreurs en ligne n'ayant pas déjà décliné cette commande,
+// celui à qui la proposer : le plus proche de la cuisine (position réelle si
+// connue, sinon en supposant qu'il est à la cuisine s'il n'a aucune livraison
+// en cours, sinon en l'excluant car on ne sait pas où il est).
+async function assignNextLivreur(orderId) {
+  const orderResult = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = orderResult.rows[0];
+  if (!order || order.statut !== 'pret' || order.mode !== 'livraison') return;
+
+  const declined = order.declined_by ? order.declined_by.split(',').filter(Boolean) : [];
+  let candidates = getOnlineLivreurNames().filter(n => !declined.includes(n));
+
+  // Si tout le monde en ligne a déjà décliné ou laissé filer le délai, on
+  // relance le cycle plutôt que de laisser la commande bloquée indéfiniment.
+  if (candidates.length === 0) {
+    candidates = getOnlineLivreurNames();
+    if (candidates.length === 0) return;
+    await pool.query("UPDATE orders SET declined_by = '' WHERE id = $1", [orderId]);
+  }
+
+  const activeCounts = await getActiveOrderCountsByLivreur();
+
+  const scored = candidates.map(name => {
+    const entry = livreurs[name];
+    const hasFreshPosition = entry && entry.lat !== null && (Date.now() - entry.lastSeen) < LIVREUR_POSITION_MAX_AGE_MS;
+    let distance;
+    if (hasFreshPosition && KITCHEN_LAT !== null && KITCHEN_LNG !== null) {
+      distance = haversineDistance(KITCHEN_LAT, KITCHEN_LNG, entry.lat, entry.lng);
+    } else {
+      distance = (activeCounts[name] || 0) === 0 ? 0 : Infinity;
+    }
+    return { name, distance };
+  }).sort((a, b) => a.distance - b.distance);
+
+  const chosen = scored[0];
+  if (!chosen || chosen.distance === Infinity) return;
+
+  await pool.query(
+    'UPDATE orders SET assigned_livreur = $1, proposal_accepted = false, proposed_at = NOW() WHERE id = $2',
+    [chosen.name, orderId]
+  );
+}
+
+// À appeler à chaque interrogation par un livreur : relance les propositions
+// restées sans réponse trop longtemps, et tente d'assigner toute commande
+// prête qui n'a encore personne.
+async function reconcileLivreurAssignments() {
+  const staleResult = await pool.query(
+    `SELECT id, assigned_livreur, declined_by FROM orders
+     WHERE mode = 'livraison' AND statut = 'pret' AND proposal_accepted = false
+       AND assigned_livreur IS NOT NULL
+       AND proposed_at < NOW() - INTERVAL '${Math.round(PROPOSAL_TIMEOUT_MS / 1000)} seconds'`
+  );
+  for (const row of staleResult.rows) {
+    const declined = row.declined_by ? row.declined_by.split(',').filter(Boolean) : [];
+    if (!declined.includes(row.assigned_livreur)) declined.push(row.assigned_livreur);
+    await pool.query(
+      'UPDATE orders SET declined_by = $1, assigned_livreur = NULL, proposal_accepted = false, proposed_at = NULL WHERE id = $2',
+      [declined.join(','), row.id]
+    );
+    await assignNextLivreur(row.id);
+  }
+
+  const unassignedResult = await pool.query(
+    "SELECT id FROM orders WHERE mode = 'livraison' AND statut = 'pret' AND assigned_livreur IS NULL"
+  );
+  for (const row of unassignedResult.rows) {
+    await assignNextLivreur(row.id);
+  }
+}
+
 // Estime quand une commande donnée sera prête (et livrée, le cas échéant),
 // en tenant compte de la charge actuelle de la cuisine et, pour une
 // livraison, de la tournée en cours du livreur.
@@ -247,18 +352,29 @@ async function estimateOrderEta(order) {
     return Math.round(readyInMinutes);
   }
 
-  const { orderedOrders, cumulativeMinutes } = await computeOptimizedStops();
-  const remainingRouteTime = cumulativeMinutes.length > 0 ? cumulativeMinutes[cumulativeMinutes.length - 1] : 0;
+  const onlineNames = getOnlineLivreurNames();
+  if (onlineNames.length === 0) {
+    // Personne en ligne : seule estimation possible, un trajet direct depuis la cuisine.
+    const travel = haversineDistance(KITCHEN_LAT, KITCHEN_LNG, order.lat, order.lng) / AVERAGE_SPEED_KMH * 60;
+    return Math.round(readyInMinutes + travel);
+  }
 
-  // Point depuis lequel estimer le trajet vers la nouvelle adresse : le
-  // dernier arrêt de la tournée en cours, sinon la position réelle du
-  // livreur si elle est récente, sinon la cuisine.
-  const referencePoint = orderedOrders.length > 0
-    ? { lat: orderedOrders[orderedOrders.length - 1].lat, lng: orderedOrders[orderedOrders.length - 1].lng }
-    : getLivreurStartPoint();
-  const travelToNewAddress = haversineDistance(referencePoint.lat, referencePoint.lng, order.lat, order.lng) / AVERAGE_SPEED_KMH * 60;
+  // On ne sait pas encore à qui cette commande sera proposée (elle n'est pas
+  // encore prête) : on prend le meilleur cas parmi les livreurs en ligne,
+  // celui qui pourrait réalistement s'en charger le plus vite.
+  let best = Infinity;
+  for (const name of onlineNames) {
+    const { orderedOrders, cumulativeMinutes } = await computeOptimizedStops(name);
+    const remainingRouteTime = cumulativeMinutes.length > 0 ? cumulativeMinutes[cumulativeMinutes.length - 1] : 0;
+    const referencePoint = orderedOrders.length > 0
+      ? { lat: orderedOrders[orderedOrders.length - 1].lat, lng: orderedOrders[orderedOrders.length - 1].lng }
+      : getLivreurPosition(name);
+    const travel = haversineDistance(referencePoint.lat, referencePoint.lng, order.lat, order.lng) / AVERAGE_SPEED_KMH * 60;
+    const total = Math.max(readyInMinutes, remainingRouteTime) + travel;
+    if (total < best) best = total;
+  }
 
-  return Math.round(Math.max(readyInMinutes, remainingRouteTime) + travelToNewAddress);
+  return Math.round(best);
 }
 
 function checkAdminPassword(req, res, next) {
@@ -266,14 +382,27 @@ function checkAdminPassword(req, res, next) {
   res.status(401).json({ error: 'Unauthorized' });
 }
 
+function findLivreurByPassword(pwd) {
+  if (!pwd) return null;
+  return Object.keys(LIVREUR_PASSWORDS).find(name => LIVREUR_PASSWORDS[name] === pwd) || null;
+}
+
 function checkLivreurPassword(req, res, next) {
-  if (LIVREUR_PASSWORD && req.header('x-livreur-password') === LIVREUR_PASSWORD) return next();
+  const name = findLivreurByPassword(req.header('x-livreur-password'));
+  if (name) {
+    req.livreurName = name;
+    return next();
+  }
   res.status(401).json({ error: 'Unauthorized' });
 }
 
 function checkAdminOrLivreurPassword(req, res, next) {
   if (ADMIN_PASSWORD && req.header('x-admin-password') === ADMIN_PASSWORD) return next();
-  if (LIVREUR_PASSWORD && req.header('x-livreur-password') === LIVREUR_PASSWORD) return next();
+  const name = findLivreurByPassword(req.header('x-livreur-password'));
+  if (name) {
+    req.livreurName = name;
+    return next();
+  }
   res.status(401).json({ error: 'Unauthorized' });
 }
 
@@ -476,6 +605,26 @@ app.post('/api/orders/:id/pret', checkAdminPassword, async (req, res) => {
   try {
     const result = await pool.query("UPDATE orders SET statut = 'pret' WHERE id = $1 RETURNING *", [req.params.id]);
     await logStatusChange(req.params.id, 'pret');
+    if (result.rows[0] && result.rows[0].mode === 'livraison') {
+      await assignNextLivreur(req.params.id);
+    }
+    const updated = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.id]);
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders/:id/accept', checkLivreurPassword, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'UPDATE orders SET proposal_accepted = true WHERE id = $1 AND assigned_livreur = $2 RETURNING *',
+      [req.params.id, req.livreurName]
+    );
+    if (result.rows.length === 0) {
+      return res.status(409).json({ error: "Cette commande ne vous est plus proposée." });
+    }
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -483,27 +632,95 @@ app.post('/api/orders/:id/pret', checkAdminPassword, async (req, res) => {
   }
 });
 
+app.post('/api/orders/:id/decline', checkLivreurPassword, async (req, res) => {
+  try {
+    const orderResult = await pool.query(
+      'SELECT * FROM orders WHERE id = $1 AND assigned_livreur = $2 AND proposal_accepted = false',
+      [req.params.id, req.livreurName]
+    );
+    if (orderResult.rows.length === 0) {
+      return res.status(409).json({ error: "Cette commande ne vous est plus proposée." });
+    }
+
+    const canDecline = getOnlineLivreurNames().filter(n => n !== req.livreurName).length > 0;
+    if (!canDecline) {
+      return res.status(400).json({ error: 'Aucun autre livreur disponible pour reprendre cette commande.' });
+    }
+
+    const order = orderResult.rows[0];
+    const declined = order.declined_by ? order.declined_by.split(',').filter(Boolean) : [];
+    if (!declined.includes(req.livreurName)) declined.push(req.livreurName);
+
+    await pool.query(
+      'UPDATE orders SET declined_by = $1, assigned_livreur = NULL, proposal_accepted = false, proposed_at = NULL WHERE id = $2',
+      [declined.join(','), req.params.id]
+    );
+    await assignNextLivreur(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/livreur/heartbeat', checkLivreurPassword, (req, res) => {
+  const entry = ensureLivreurEntry(req.livreurName);
+  entry.online = true;
+  entry.lastSeen = Date.now();
+  res.json({ ok: true });
+});
+
 app.post('/api/livreur/position', checkLivreurPassword, (req, res) => {
   const { lat, lng } = req.body;
   if (typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ error: 'lat et lng (nombres) requis' });
   }
-  LIVREUR_LAT = lat;
-  LIVREUR_LNG = lng;
-  LIVREUR_LAST_UPDATE = Date.now();
+  const entry = ensureLivreurEntry(req.livreurName);
+  entry.lat = lat;
+  entry.lng = lng;
+  entry.online = true;
+  entry.lastSeen = Date.now();
+  res.json({ ok: true });
+});
+
+app.post('/api/livreur/logout', checkLivreurPassword, (req, res) => {
+  const entry = ensureLivreurEntry(req.livreurName);
+  entry.online = false;
   res.json({ ok: true });
 });
 
 app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
   try {
+    const entry = ensureLivreurEntry(req.livreurName);
+    entry.online = true;
+    entry.lastSeen = Date.now();
+
+    await reconcileLivreurAssignments();
+
     if (KITCHEN_LAT === null || KITCHEN_LNG === null) {
-      return res.json({ stops: [], wait_suggestion: null, message: 'Tournée indisponible : adresse de la cuisine non géolocalisée' });
+      return res.json({ stops: [], wait_suggestion: null, proposal: null, message: 'Tournée indisponible : adresse de la cuisine non géolocalisée' });
     }
 
-    const { orderedOrders, cumulativeMinutes, unlocatedOrders } = await computeOptimizedStops();
+    const proposalResult = await pool.query(
+      "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'pret' AND assigned_livreur = $1 AND proposal_accepted = false",
+      [req.livreurName]
+    );
+    const canDecline = getOnlineLivreurNames().filter(n => n !== req.livreurName).length > 0;
+    const proposal = proposalResult.rows.length > 0 ? {
+      id: proposalResult.rows[0].id,
+      numero_commande: proposalResult.rows[0].numero_commande,
+      nom: proposalResult.rows[0].nom,
+      adresse: proposalResult.rows[0].adresse,
+      classique: proposalResult.rows[0].classique,
+      thina: proposalResult.rows[0].thina,
+      total: proposalResult.rows[0].total,
+      can_decline: canDecline
+    } : null;
+
+    const { orderedOrders, cumulativeMinutes, unlocatedOrders } = await computeOptimizedStops(req.livreurName);
 
     if (orderedOrders.length === 0 && unlocatedOrders.length === 0) {
-      return res.json({ stops: [], wait_suggestion: null, message: 'Aucune livraison prête pour le moment' });
+      return res.json({ stops: [], wait_suggestion: null, proposal, message: 'Aucune livraison prête pour le moment' });
     }
 
     const stops = orderedOrders.map((o, i) => ({
@@ -566,7 +783,7 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
       };
     }
 
-    res.json({ stops, wait_suggestion });
+    res.json({ stops, wait_suggestion, proposal });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
