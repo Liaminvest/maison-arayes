@@ -791,7 +791,7 @@
             Le même Arayes, en version généreuse. Double portion de viande, pour les gros gourmands qui ne font pas semblant.
           </div>
           <div class="card-foot">
-            <div class="card-price">14.95 <span>CHF</span></div>
+            <div class="card-price">15.95 <span>CHF</span></div>
             <span class="card-badge">XL</span>
           </div>
         </div>
@@ -1253,7 +1253,7 @@
   const totalVal = document.getElementById('total-val');
   function updateTotal() {
     const livraisonFee = modeSelect.value === 'livraison' ? 5 : 0;
-    const t = parseInt(qtyC.value) * 12.95 + parseInt(qtyXL.value) * 14.95 + parseInt(qtyT.value) * 0.80 + livraisonFee;
+    const t = parseInt(qtyC.value) * 12.95 + parseInt(qtyXL.value) * 15.95 + parseInt(qtyT.value) * 0.80 + livraisonFee;
     totalVal.textContent = t.toFixed(2) + ' CHF';
 
     if (cashPickupCheckbox.checked) {
