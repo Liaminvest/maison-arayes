@@ -4,75 +4,113 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Commande confirmée — La Maison de l'Arayes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Permanent+Marker&family=Work+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+  :root {
+    --bg: #0D0D0D;
+    --bg2: #161616;
+    --bg3: #1E1E1E;
+    --white: #F2EFE6;
+    --cream: #EDEAE2;
+    --muted: #8A8A85;
+    --accent: #E8572B;
+    --accent-h: #F26B3F;
+    --fn-head: 'Oswald', sans-serif;
+    --fn-body: 'Work Sans', sans-serif;
+  }
   body {
     margin: 0;
     min-height: 100vh;
-    background: #0C1520;
-    color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--cream);
+    font-family: var(--fn-body);
+    font-weight: 600;
     display: flex;
     align-items: center;
     justify-content: center;
     text-align: center;
     padding: 24px;
     box-sizing: border-box;
+    position: relative;
+  }
+  h1 { font-family: var(--fn-head); text-transform: uppercase; }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0;
+    opacity: 0.1; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: 0;
+    opacity: 0.04; pointer-events: none;
+    background-image: repeating-linear-gradient(115deg, transparent, transparent 3px, rgba(255,255,255,0.7) 3px, rgba(255,255,255,0.7) 4px);
   }
   .card {
     max-width: 480px;
+    position: relative; z-index: 1;
   }
   .icon {
     font-size: 64px;
     margin-bottom: 16px;
   }
   h1 {
-    font-size: 28px;
+    font-size: 30px;
     margin: 0 0 16px;
   }
   p {
     font-size: 16px;
     line-height: 1.6;
-    color: #c7d0db;
+    color: var(--muted);
     margin: 0 0 28px;
   }
   a.btn {
     display: inline-block;
-    background: #fff;
-    color: #0C1520;
+    background: var(--white);
+    color: #000;
     text-decoration: none;
-    font-weight: 600;
+    font-family: var(--fn-head);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     padding: 14px 28px;
-    border-radius: 8px;
+    transform: skewX(-6deg);
   }
+  a.btn:hover { background: var(--accent-h); color: var(--white); }
   .notify-block {
     margin-bottom: 24px;
   }
   button.btn-notify {
     display: inline-block;
-    background: #C4923A;
-    color: #1a1208;
+    background: var(--accent);
+    color: var(--white);
     border: none;
     text-decoration: none;
+    font-family: var(--fn-head);
     font-weight: 700;
     font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     padding: 14px 28px;
-    border-radius: 8px;
     cursor: pointer;
-    font-family: inherit;
+    transform: skewX(-6deg);
   }
+  button.btn-notify:hover { background: var(--accent-h); }
   .notify-status {
     margin-top: 12px;
     font-size: 14px;
-    color: #8fa0b3;
+    color: var(--muted);
   }
   .eta-box {
-    background: #1a2838;
-    border: 1px solid #C4923A;
-    color: #C4923A;
+    background: var(--bg3);
+    border: 2px solid var(--accent);
+    color: var(--accent);
     font-weight: 700;
     font-size: 17px;
     padding: 14px 18px;
-    border-radius: 10px;
     margin: 0 0 24px;
     min-height: 24px;
   }

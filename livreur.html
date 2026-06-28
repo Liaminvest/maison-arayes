@@ -6,22 +6,47 @@
 <title>Livreur — La Maison de l'Arayes</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Permanent+Marker&family=Work+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0C1520;
-    --red: #9B3222;
-    --gold: #C4923A;
+    --bg: #0D0D0D;
+    --bg2: #161616;
+    --bg3: #1E1E1E;
+    --white: #F2EFE6;
+    --cream: #EDEAE2;
+    --muted: #8A8A85;
+    --accent: #E8572B;
+    --accent-h: #F26B3F;
+    --fn-head: 'Oswald', sans-serif;
+    --fn-body: 'Work Sans', sans-serif;
+    --fn-hand: 'Permanent Marker', cursive;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     background: var(--bg);
-    color: #fff;
-    font-family: 'Outfit', -apple-system, sans-serif;
+    color: var(--cream);
+    font-family: var(--fn-body);
+    font-weight: 600;
     min-height: 100vh;
+    position: relative;
   }
-  .wrap { max-width: 560px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1, h2, h3 { font-family: var(--fn-head); text-transform: uppercase; }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 1;
+    opacity: 0.1; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: 1;
+    opacity: 0.04; pointer-events: none;
+    background-image: repeating-linear-gradient(115deg, transparent, transparent 3px, rgba(255,255,255,0.7) 3px, rgba(255,255,255,0.7) 4px);
+  }
+
+  .wrap { max-width: 560px; margin: 0 auto; padding: 20px 16px 60px; position: relative; z-index: 2; }
 
   #login-screen {
     min-height: 100vh;
@@ -32,76 +57,82 @@
     gap: 16px;
     padding: 24px;
     text-align: center;
+    position: relative; z-index: 2;
   }
-  #login-screen h1 { font-size: 24px; margin: 0 0 8px; }
+  #login-screen h1 { font-size: 26px; margin: 0 0 8px; }
   #login-screen input {
-    background: #15212f;
-    border: 1px solid #ffffff22;
-    color: #fff;
+    background: var(--bg3);
+    border: 2px solid var(--white);
+    color: var(--cream);
     padding: 16px;
-    border-radius: 10px;
     font-size: 18px;
     width: 100%;
     max-width: 300px;
-    font-family: inherit;
+    font-family: var(--fn-body);
+    font-weight: 600;
   }
   #login-screen button {
-    background: var(--red);
-    color: #fff;
+    background: var(--white);
+    color: #000;
     border: none;
     padding: 16px 24px;
-    border-radius: 10px;
-    font-size: 17px;
+    font-family: var(--fn-head);
+    font-size: 16px;
     font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     cursor: pointer;
-    font-family: inherit;
+    transform: skewX(-6deg);
     width: 100%;
     max-width: 300px;
   }
-  #login-error { color: #ff6b6b; font-size: 15px; min-height: 20px; }
+  #login-screen button:hover { background: var(--accent-h); color: var(--white); }
+  #login-error { color: var(--accent); font-size: 15px; min-height: 20px; font-weight: 700; }
 
   #dashboard { display: none; }
-  h1.title { font-size: 22px; margin: 4px 0 16px; }
-  .gps-status { font-size: 13px; color: #8fa0b3; margin: -8px 0 14px; }
+  h1.title { font-size: 24px; margin: 4px 0 16px; }
+  .gps-status { font-size: 13px; color: var(--muted); margin: -8px 0 14px; font-weight: 600; }
   .gps-status.active { color: #2E9E5B; }
   .gps-status.error { color: #C0392B; }
 
   .wait-banner {
     background: #F2B134;
-    color: #1a1208;
-    font-weight: 700;
+    color: #000;
+    font-weight: 800;
     font-size: 17px;
     padding: 14px 18px;
-    border-radius: 10px;
     margin-bottom: 18px;
     text-align: center;
     display: none;
+    border: 2px solid #000;
   }
 
   .stop-number {
     display: inline-block;
-    background: var(--red);
-    color: #fff;
-    font-weight: 800;
+    background: var(--accent);
+    color: var(--white);
+    font-family: var(--fn-head);
+    font-weight: 700;
+    text-transform: uppercase;
     font-size: 13px;
-    padding: 4px 10px;
-    border-radius: 999px;
+    padding: 4px 12px;
     margin-bottom: 10px;
+    transform: rotate(-2deg);
   }
-  .order-trajet { font-size: 15px; color: #8fa0b3; margin: 6px 0 14px; }
+  .order-trajet { font-size: 15px; color: var(--muted); margin: 6px 0 14px; font-weight: 600; }
 
   .order-card {
-    background: #121f2e;
-    border: 1px solid #ffffff14;
-    border-radius: 14px;
+    background: var(--bg3);
+    border: 2px solid var(--white);
     padding: 20px;
     margin-bottom: 18px;
+    position: relative;
   }
   .order-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
   .order-phone a {
-    color: var(--gold);
+    color: var(--accent);
     font-size: 19px;
-    font-weight: 600;
+    font-weight: 700;
     text-decoration: none;
   }
   .order-adresse {
@@ -109,20 +140,19 @@
     font-weight: 700;
     margin: 14px 0;
     line-height: 1.4;
-    background: #0c1822;
-    border-radius: 10px;
+    background: var(--bg2);
+    border: 2px solid rgba(242,239,230,0.2);
     padding: 14px;
   }
-  .order-detail { font-size: 17px; color: #c7d0db; margin: 10px 0; }
-  .order-total { font-size: 19px; font-weight: 700; color: var(--gold); margin-bottom: 14px; }
+  .order-detail { font-size: 17px; color: var(--cream); margin: 10px 0; }
+  .order-total { font-size: 19px; font-weight: 700; color: var(--accent); margin-bottom: 14px; font-family: var(--fn-head); }
 
   .livre-check-row {
     display: flex;
     align-items: center;
     gap: 14px;
-    background: #0c1822;
+    background: var(--bg2);
     border: 2px solid #2E9E5B;
-    border-radius: 10px;
     padding: 16px 18px;
     cursor: pointer;
   }
@@ -137,23 +167,23 @@
     font-size: 17px;
     font-weight: 700;
     color: #2E9E5B;
+    font-family: var(--fn-head);
+    text-transform: uppercase;
   }
   .order-remarques {
     font-size: 14px;
-    color: #1a1208;
-    background: var(--gold);
-    border-radius: 8px;
+    color: #000;
+    background: var(--accent);
     padding: 10px 12px;
     margin: 6px 0 14px;
-    font-weight: 600;
+    font-weight: 700;
   }
   .localisation-warning {
     background: #C0392B;
-    color: #fff;
+    color: var(--white);
     font-weight: 700;
     font-size: 14px;
     padding: 10px 12px;
-    border-radius: 8px;
     margin: 6px 0 14px;
   }
 
@@ -165,38 +195,37 @@
   }
   .btn-logout {
     background: transparent;
-    border: 1px solid #ffffff33;
-    color: #c7d0db;
-    font-size: 13px;
-    font-weight: 600;
+    border: 2px solid rgba(242,239,230,0.3);
+    color: var(--cream);
+    font-family: var(--fn-head);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
     padding: 8px 14px;
-    border-radius: 8px;
     cursor: pointer;
-    font-family: inherit;
   }
 
   @keyframes pulse-gold {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(196, 146, 58, 0.5); }
-    50% { box-shadow: 0 0 0 8px rgba(196, 146, 58, 0); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(232,87,43,0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(232,87,43,0); }
   }
   .proposal-card {
-    background: #1a2838;
-    border: 2px solid var(--gold);
-    border-radius: 14px;
+    background: var(--bg2);
+    border: 2px solid var(--accent);
     padding: 20px;
     margin-bottom: 20px;
     animation: pulse-gold 1.5s infinite;
   }
   .proposal-badge {
     display: inline-block;
-    background: var(--gold);
-    color: #1a1208;
-    font-weight: 800;
+    background: var(--accent);
+    color: var(--white);
+    font-family: var(--fn-head);
+    font-weight: 700;
     font-size: 13px;
     text-transform: uppercase;
-    letter-spacing: .03em;
-    padding: 5px 12px;
-    border-radius: 999px;
+    letter-spacing: .04em;
+    padding: 6px 14px;
     margin-bottom: 12px;
   }
   .proposal-actions {
@@ -208,48 +237,50 @@
     flex: 1;
     border: none;
     padding: 16px;
-    border-radius: 10px;
-    font-size: 16px;
+    font-family: var(--fn-head);
+    font-size: 15px;
     font-weight: 700;
+    text-transform: uppercase;
     cursor: pointer;
-    font-family: inherit;
+    transform: skewX(-6deg);
   }
-  .btn-accept { background: #2E9E5B; color: #fff; }
-  .btn-decline { background: transparent; border: 1px solid #C0392B; color: #C0392B; }
+  .btn-accept { background: #2E9E5B; color: var(--white); }
+  .btn-decline { background: transparent; border: 2px solid #C0392B; color: #C0392B; }
 
-  .empty { color: #8fa0b3; padding: 60px 20px; text-align: center; font-size: 18px; }
+  .empty { color: var(--muted); padding: 60px 20px; text-align: center; font-size: 18px; font-weight: 600; }
 
   .sound-banner {
     position: fixed;
     top: 0; left: 0; right: 0;
     z-index: 1000;
-    background: var(--gold);
-    color: #1a1208;
+    background: var(--accent);
+    color: var(--white);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-wrap: wrap;
     gap: 12px;
     padding: 12px 16px;
-    font-weight: 600;
+    font-weight: 700;
     font-size: 14px;
     text-align: center;
   }
   .sound-banner button {
-    background: #1a1208;
-    color: #fff;
+    background: var(--white);
+    color: #000;
     border: none;
     padding: 8px 16px;
-    border-radius: 6px;
+    font-family: var(--fn-head);
     font-weight: 700;
     font-size: 13px;
+    text-transform: uppercase;
     cursor: pointer;
-    font-family: inherit;
+    transform: skewX(-6deg);
   }
 
   @keyframes flash-border {
-    0%, 100% { border-color: #ffffff14; box-shadow: none; }
-    50% { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(196, 146, 58, 0.4); }
+    0%, 100% { border-color: var(--white); box-shadow: none; }
+    50% { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(232,87,43,0.4); }
   }
   .order-card.new-flash { animation: flash-border 0.5s ease-in-out 4; }
 </style>
