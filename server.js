@@ -510,7 +510,7 @@ app.post('/create-checkout-session', async (req, res) => {
         price_data: {
           currency: 'chf',
           product_data: { name: `Arayes XL${promoSuffix}` },
-          unit_amount: Math.round(1695 * discountFactor)
+          unit_amount: Math.round(1495 * discountFactor)
         },
         quantity: xl
       });
