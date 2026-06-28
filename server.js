@@ -9,8 +9,10 @@ const KITCHEN_ADDRESS = process.env.KITCHEN_ADDRESS;
 const PROMO_CODE = process.env.PROMO;
 const PROMO_DISCOUNT_PERCENT = 10;
 const AVERAGE_SPEED_KMH = 30;
-const KITCHEN_CAPACITY = 4;
-const PREP_TIME_MIN = 10;
+// Réalité de la cuisson : 3 poêles × 2 triangles = 6 triangles = 2 commandes
+// (1 commande = 3 triangles) traitées par cycle de four + poêle + emballage.
+const CYCLE_MINUTES = 9;
+const BATCH_SIZE = 2;
 const LIVREUR_POSITION_MAX_AGE_MS = 3 * 60 * 1000;
 const LIVREUR_HEARTBEAT_TIMEOUT_MS = 45 * 1000;
 const PROPOSAL_TIMEOUT_MS = 60 * 1000;
@@ -71,11 +73,11 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_online NUMERIC(10,2)`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cash_on_pickup BOOLEAN DEFAULT false`);
   await pool.query(`ALTER TABLE orders DROP COLUMN IF EXISTS eta`);
-  // eta_minutes/eta_set_at étaient renseignés manuellement par un endpoint
-  // jamais appelé depuis l'admin ; remplacés par l'estimation automatique
-  // basée sur order_status_log (cf. getCookingOrdersWithRemaining).
-  await pool.query(`ALTER TABLE orders DROP COLUMN IF EXISTS eta_minutes`);
-  await pool.query(`ALTER TABLE orders DROP COLUMN IF EXISTS eta_set_at`);
+  // eta_minutes/eta_set_at : calculés automatiquement à la création de la
+  // commande (webhook), ajustés à chaque commande qui passe pret/livre, et
+  // modifiables manuellement par la cuisine (POST /api/orders/:id/eta).
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS eta_minutes INT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS eta_set_at TIMESTAMP`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP`);
@@ -142,69 +144,45 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Simule une cuisine à capacité limitée (plusieurs commandes en parallèle) :
-// renvoie le nombre de minutes avant que la (queuePosition + 1)-ème commande
-// en attente obtienne une place sur le grill et termine de cuire.
-function simulateKitchenQueue(queuePosition, cookingRemaining, capacity, ownCookTime) {
-  const freeEvents = cookingRemaining.slice();
-  let freeSlotsNow = Math.max(0, capacity - cookingRemaining.length);
-  const ordersToProcess = queuePosition + 1;
-  let lastStart = 0;
-
-  for (let i = 0; i < ordersToProcess; i++) {
-    let startTime;
-    if (freeSlotsNow > 0) {
-      startTime = 0;
-      freeSlotsNow--;
-    } else {
-      freeEvents.sort((a, b) => a - b);
-      startTime = freeEvents.shift();
-      freeEvents.push(startTime + ownCookTime);
-    }
-    lastStart = startTime;
-  }
-  return lastStart + ownCookTime;
-}
-
-async function getKitchenQueueAheadCount(createdAt) {
+// Combien de commandes sont déjà en file (pas encore prêtes) avant celle-ci.
+async function computeQueueAheadCount(excludeOrderId) {
   const result = await pool.query(
-    "SELECT COUNT(*) FROM orders WHERE statut = 'nouvelle' AND created_at < $1",
-    [createdAt]
+    "SELECT COUNT(*) FROM orders WHERE statut IN ('nouvelle', 'en_preparation') AND id != $1",
+    [excludeOrderId]
   );
   return parseInt(result.rows[0].count, 10);
 }
 
-async function getCookingRemainingMinutes() {
-  const result = await pool.query(`
-    SELECT o.id, MAX(l.changed_at) AS started_at
-    FROM orders o
-    LEFT JOIN order_status_log l ON l.order_id = o.id AND l.statut = 'en_preparation'
-    WHERE o.statut = 'en_preparation'
-    GROUP BY o.id
-  `);
-  const now = Date.now();
-  return result.rows.map(r => {
-    if (!r.started_at) return PREP_TIME_MIN;
-    const elapsedMin = (now - new Date(r.started_at).getTime()) / 60000;
-    return Math.max(0, PREP_TIME_MIN - elapsedMin);
-  });
+// 2 commandes traitées par cycle de 9 min (four + poêle + emballage).
+function etaMinutesForQueuePosition(positionDansLaQueue) {
+  const cyclesAvant = Math.ceil((positionDansLaQueue + 1) / BATCH_SIZE);
+  return cyclesAvant * CYCLE_MINUTES;
 }
 
-// Comme getCookingRemainingMinutes, mais garde l'id et la position de chaque
-// commande en cuisson — nécessaire pour suggérer d'attendre une commande
-// livraison presque prête et proche du livreur.
+// Chaque fois qu'une commande passe à 'pret' ou 'livre', la file entière
+// avance d'un cycle : pas de recalcul complexe, juste -9 min pour les autres.
+async function decrementQueueEta(excludeOrderId) {
+  await pool.query(
+    `UPDATE orders SET eta_minutes = GREATEST(eta_minutes - ${CYCLE_MINUTES}, ${CYCLE_MINUTES})
+     WHERE statut IN ('nouvelle', 'en_preparation') AND eta_minutes IS NOT NULL AND id != $1`,
+    [excludeOrderId]
+  );
+}
+
+// Commandes livraison en cuisson, avec leur ETA stocké — nécessaire pour
+// suggérer au livreur d'attendre une commande presque prête et proche.
 async function getCookingOrdersWithRemaining() {
   const result = await pool.query(`
-    SELECT o.id, o.lat, o.lng, MAX(l.changed_at) AS started_at
-    FROM orders o
-    LEFT JOIN order_status_log l ON l.order_id = o.id AND l.statut = 'en_preparation'
-    WHERE o.statut = 'en_preparation' AND o.mode = 'livraison' AND o.lat IS NOT NULL AND o.lng IS NOT NULL
-    GROUP BY o.id, o.lat, o.lng
+    SELECT id, lat, lng, eta_minutes, eta_set_at
+    FROM orders
+    WHERE statut = 'en_preparation' AND mode = 'livraison'
+      AND lat IS NOT NULL AND lng IS NOT NULL
+      AND eta_minutes IS NOT NULL AND eta_set_at IS NOT NULL
   `);
   const now = Date.now();
   return result.rows.map(r => {
-    const elapsedMin = r.started_at ? (now - new Date(r.started_at).getTime()) / 60000 : 0;
-    return { id: r.id, lat: r.lat, lng: r.lng, remaining: Math.max(0, PREP_TIME_MIN - elapsedMin) };
+    const readyAt = new Date(r.eta_set_at).getTime() + r.eta_minutes * 60000;
+    return { id: r.id, lat: r.lat, lng: r.lng, remaining: Math.max(0, (readyAt - now) / 60000) };
   });
 }
 
@@ -361,46 +339,6 @@ async function reconcileLivreurAssignments() {
   }
 }
 
-// Estime quand une commande donnée sera prête (et livrée, le cas échéant),
-// en tenant compte de la charge actuelle de la cuisine et, pour une
-// livraison, de la tournée en cours du livreur.
-async function estimateOrderEta(order) {
-  const queuePosition = await getKitchenQueueAheadCount(order.created_at);
-  const cookingRemaining = await getCookingRemainingMinutes();
-  const readyInMinutes = simulateKitchenQueue(queuePosition, cookingRemaining, KITCHEN_CAPACITY, PREP_TIME_MIN);
-
-  if (order.mode !== 'livraison') {
-    return Math.round(readyInMinutes);
-  }
-
-  if (order.lat === null || order.lng === null || KITCHEN_LAT === null || KITCHEN_LNG === null) {
-    return Math.round(readyInMinutes);
-  }
-
-  const onlineNames = getOnlineLivreurNames();
-  if (onlineNames.length === 0) {
-    // Personne en ligne : seule estimation possible, un trajet direct depuis la cuisine.
-    const travel = haversineDistance(KITCHEN_LAT, KITCHEN_LNG, order.lat, order.lng) / AVERAGE_SPEED_KMH * 60;
-    return Math.round(readyInMinutes + travel);
-  }
-
-  // On ne sait pas encore à qui cette commande sera proposée (elle n'est pas
-  // encore prête) : on prend le meilleur cas parmi les livreurs en ligne,
-  // celui qui pourrait réalistement s'en charger le plus vite.
-  let best = Infinity;
-  for (const name of onlineNames) {
-    const { orderedOrders, cumulativeMinutes } = await computeOptimizedStops(name);
-    const remainingRouteTime = cumulativeMinutes.length > 0 ? cumulativeMinutes[cumulativeMinutes.length - 1] : 0;
-    const referencePoint = orderedOrders.length > 0
-      ? { lat: orderedOrders[orderedOrders.length - 1].lat, lng: orderedOrders[orderedOrders.length - 1].lng }
-      : getLivreurPosition(name);
-    const travel = haversineDistance(referencePoint.lat, referencePoint.lng, order.lat, order.lng) / AVERAGE_SPEED_KMH * 60;
-    const total = Math.max(readyInMinutes, remainingRouteTime) + travel;
-    if (total < best) best = total;
-  }
-
-  return Math.round(best);
-}
 
 function checkAdminPassword(req, res, next) {
   if (ADMIN_PASSWORD && req.header('x-admin-password') === ADMIN_PASSWORD) return next();
@@ -468,6 +406,12 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
       const numeroCommande = `CMD-${String(orderId).padStart(6, '0')}`;
       await pool.query('UPDATE orders SET numero_commande = $1 WHERE id = $2', [numeroCommande, orderId]);
       await logStatusChange(orderId, 'nouvelle');
+
+      // Calcul automatique de l'ETA cuisine dès la création de la commande,
+      // basé sur la position réelle dans la file (2 commandes / cycle de 9 min).
+      const queueAhead = await computeQueueAheadCount(orderId);
+      const etaMinutes = etaMinutesForQueuePosition(queueAhead);
+      await pool.query('UPDATE orders SET eta_minutes = $1, eta_set_at = NOW() WHERE id = $2', [etaMinutes, orderId]);
 
       if (metadata.mode === 'livraison' && metadata.adresse) {
         const coords = await geocodeAddress(metadata.adresse);
@@ -565,28 +509,19 @@ app.get('/api/order-status', async (req, res) => {
     const { session_id } = req.query;
     if (!session_id) return res.status(400).json({ error: 'session_id requis' });
     const result = await pool.query(
-      'SELECT id, created_at, statut, mode, lat, lng, numero_commande FROM orders WHERE stripe_session_id = $1',
+      'SELECT statut, mode, numero_commande, eta_minutes, eta_set_at FROM orders WHERE stripe_session_id = $1',
       [session_id]
     );
     if (result.rows.length === 0) return res.json({ found: false });
 
     const order = result.rows[0];
-    const doneStatut = order.mode === 'retrait' ? 'pret' : 'livre';
-    let eta_minutes = null;
-    if (order.statut !== doneStatut) {
-      try {
-        eta_minutes = await estimateOrderEta(order);
-      } catch (err) {
-        console.error('Erreur estimation ETA:', err.message);
-      }
-    }
-
     res.json({
       found: true,
       statut: order.statut,
       mode: order.mode,
       numero_commande: order.numero_commande,
-      eta_minutes
+      eta_minutes: order.eta_minutes,
+      eta_set_at: order.eta_set_at
     });
   } catch (err) {
     console.error(err);
@@ -629,6 +564,20 @@ app.post('/api/orders/:id/status', checkAdminOrLivreurPassword, async (req, res)
 
     await pool.query('UPDATE orders SET statut = $1 WHERE id = $2', [statut, req.params.id]);
     await logStatusChange(req.params.id, statut);
+    if (statut === 'pret' || statut === 'livre') {
+      await decrementQueueEta(req.params.id);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders/:id/eta', checkAdminPassword, async (req, res) => {
+  try {
+    const { eta } = req.body;
+    await pool.query('UPDATE orders SET eta_minutes = $1, eta_set_at = NOW() WHERE id = $2', [eta, req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -640,6 +589,7 @@ app.post('/api/orders/:id/pret', checkAdminPassword, async (req, res) => {
   try {
     const result = await pool.query("UPDATE orders SET statut = 'pret' WHERE id = $1 RETURNING *", [req.params.id]);
     await logStatusChange(req.params.id, 'pret');
+    await decrementQueueEta(req.params.id);
     if (result.rows[0] && result.rows[0].mode === 'livraison') {
       await assignNextLivreur(req.params.id);
     }

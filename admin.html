@@ -152,6 +152,9 @@
     margin: 6px 0;
     font-weight: 700;
   }
+  .order-eta { font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  .status-btn.eta-btn { border-color: rgba(232,87,43,0.4); }
+  .status-btn.eta-btn:hover { border-color: var(--accent); color: var(--accent); }
   .order-scheduled {
     font-family: var(--fn-head);
     font-size: 17px;
@@ -483,6 +486,19 @@
         ? `<button class="status-btn pret-btn" onclick="marquerPret(${o.id})">✅ Marquer comme prêt</button>`
         : '';
 
+      let etaBlock = '';
+      if ((o.statut === 'nouvelle' || o.statut === 'en_preparation') && o.eta_minutes !== null && o.eta_set_at) {
+        const readyAt = new Date(new Date(o.eta_set_at).getTime() + o.eta_minutes * 60000);
+        const readyTimeStr = readyAt.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
+        const etaBtns = [10, 15, 20, 30, 45].map(min =>
+          `<button class="status-btn eta-btn" onclick="setEta(${o.id}, ${min})">${min} min</button>`
+        ).join('');
+        etaBlock = `
+          <div class="order-eta">⏱ Estimation auto : prêt vers ${readyTimeStr} (${o.eta_minutes} min) — corriger :</div>
+          <div class="status-row">${etaBtns}</div>
+        `;
+      }
+
       let scheduledBlock = '';
       if (o.scheduled_for) {
         const schedDate = new Date(o.scheduled_for);
@@ -523,6 +539,7 @@
           ${adresseLine}
           ${remarquesLine}
           ${cashPickupLine}
+          ${etaBlock}
           <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
           <div class="status-row">${pretBtn}${statusBtns}</div>
         </div>
@@ -552,6 +569,19 @@
       tryFetchOrders(password);
     } catch (err) {
       alert('Erreur lors du marquage comme prêt.');
+    }
+  }
+
+  async function setEta(id, eta) {
+    try {
+      await fetch(`/api/orders/${id}/eta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': password },
+        body: JSON.stringify({ eta })
+      });
+      tryFetchOrders(password);
+    } catch (err) {
+      alert("Erreur lors de la correction de l'estimation.");
     }
   }
 

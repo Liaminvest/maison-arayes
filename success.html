@@ -225,9 +225,10 @@
             new Notification(title, { body });
             statusEl.textContent = title;
           }
-        } else if (data.eta_minutes !== null && data.eta_minutes !== undefined) {
-          const label = data.mode === 'retrait' ? 'prête' : 'livrée';
-          etaEl.textContent = `⏱ Estimation : ${label} dans environ ${data.eta_minutes} min`;
+        } else if (data.eta_minutes !== null && data.eta_minutes !== undefined && data.eta_set_at) {
+          const readyAt = new Date(new Date(data.eta_set_at).getTime() + data.eta_minutes * 60000);
+          const timeStr = readyAt.toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
+          etaEl.textContent = `Ton Arayes sera prêt vers ${timeStr}`;
         } else {
           etaEl.textContent = 'Préparation de votre commande en cours...';
         }
