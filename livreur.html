@@ -138,6 +138,15 @@
     font-weight: 700;
     color: #2E9E5B;
   }
+  .order-remarques {
+    font-size: 14px;
+    color: #1a1208;
+    background: var(--gold);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 6px 0 14px;
+    font-weight: 600;
+  }
   .localisation-warning {
     background: #C0392B;
     color: #fff;
@@ -419,6 +428,7 @@
           <div class="order-name">${escapeHtml(proposal.nom || '—')}${proposal.numero_commande ? ' · ' + escapeHtml(proposal.numero_commande) : ''}</div>
           <div class="order-adresse">📍 ${escapeHtml(proposal.adresse || 'Adresse non renseignée')}</div>
           <div class="order-detail">${proposal.classique || 0}× Classique · ${proposal.thina || 0}× Thina</div>
+          ${proposal.remarques ? `<div class="order-remarques">📝 ${escapeHtml(proposal.remarques)}</div>` : ''}
           <div class="order-total">${parseFloat(proposal.total || 0).toFixed(2)} CHF</div>
           <div class="proposal-actions">
             <button class="btn-accept" onclick="acceptProposal(${proposal.id})">✅ Accepter</button>
@@ -459,6 +469,7 @@
         <div class="order-name">${escapeHtml(s.nom || '—')}</div>
         <div class="order-phone"><a href="tel:${encodeURIComponent(s.telephone || '')}">📞 ${escapeHtml(s.telephone || '—')}</a></div>
         <div class="order-detail">${s.classique || 0}× Classique · ${s.thina || 0}× Thina</div>
+        ${s.remarques ? `<div class="order-remarques">📝 ${escapeHtml(s.remarques)}</div>` : ''}
         ${s.localisation_inconnue
           ? '<div class="localisation-warning">⚠️ Adresse non localisée — appelez le client pour confirmer le trajet</div>'
           : `<div class="order-trajet">≈ ${s.minutes_trajet} min depuis la cuisine</div>`}
@@ -483,10 +494,14 @@
 
   async function acceptProposal(id) {
     try {
-      await fetch(`/api/orders/${id}/accept`, {
+      const res = await fetch(`/api/orders/${id}/accept`, {
         method: 'POST',
         headers: { 'x-livreur-password': password }
       });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || "Impossible d'accepter cette commande.");
+      }
       tryFetchOrders(password);
     } catch (err) {
       alert("Erreur lors de l'acceptation de la commande.");

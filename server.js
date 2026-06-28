@@ -68,13 +68,17 @@ async function initDb() {
   `);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS thina INT DEFAULT 0`);
   await pool.query(`ALTER TABLE orders DROP COLUMN IF EXISTS eta`);
-  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS eta_minutes INT`);
-  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS eta_set_at TIMESTAMP`);
+  // eta_minutes/eta_set_at étaient renseignés manuellement par un endpoint
+  // jamais appelé depuis l'admin ; remplacés par l'estimation automatique
+  // basée sur order_status_log (cf. getCookingOrdersWithRemaining).
+  await pool.query(`ALTER TABLE orders DROP COLUMN IF EXISTS eta_minutes`);
+  await pool.query(`ALTER TABLE orders DROP COLUMN IF EXISTS eta_set_at`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS numero_commande TEXT`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS stripe_session_id TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS remarques TEXT`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS assigned_livreur TEXT`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS proposal_accepted BOOLEAN DEFAULT false`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_by TEXT DEFAULT ''`);
@@ -180,6 +184,24 @@ async function getCookingRemainingMinutes() {
     if (!r.started_at) return PREP_TIME_MIN;
     const elapsedMin = (now - new Date(r.started_at).getTime()) / 60000;
     return Math.max(0, PREP_TIME_MIN - elapsedMin);
+  });
+}
+
+// Comme getCookingRemainingMinutes, mais garde l'id et la position de chaque
+// commande en cuisson — nécessaire pour suggérer d'attendre une commande
+// livraison presque prête et proche du livreur.
+async function getCookingOrdersWithRemaining() {
+  const result = await pool.query(`
+    SELECT o.id, o.lat, o.lng, MAX(l.changed_at) AS started_at
+    FROM orders o
+    LEFT JOIN order_status_log l ON l.order_id = o.id AND l.statut = 'en_preparation'
+    WHERE o.statut = 'en_preparation' AND o.mode = 'livraison' AND o.lat IS NOT NULL AND o.lng IS NOT NULL
+    GROUP BY o.id, o.lat, o.lng
+  `);
+  const now = Date.now();
+  return result.rows.map(r => {
+    const elapsedMin = r.started_at ? (now - new Date(r.started_at).getTime()) / 60000 : 0;
+    return { id: r.id, lat: r.lat, lng: r.lng, remaining: Math.max(0, PREP_TIME_MIN - elapsedMin) };
   });
 }
 
@@ -432,9 +454,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 
     try {
       const inserted = await pool.query(
-        `INSERT INTO orders (nom, telephone, mode, adresse, classique, thina, total, scheduled_for, stripe_session_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total, scheduledFor, session.id]
+        `INSERT INTO orders (nom, telephone, mode, adresse, classique, thina, total, scheduled_for, stripe_session_id, remarques)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total, scheduledFor, session.id, metadata.remarques || '']
       );
       const orderId = inserted.rows[0].id;
       const numeroCommande = `CMD-${String(orderId).padStart(6, '0')}`;
@@ -460,7 +482,7 @@ app.use(express.static(__dirname));
 
 app.post('/create-checkout-session', async (req, res) => {
   try {
-    const { classique, thina, nom, telephone, mode, adresse, promoCode, scheduledFor } = req.body;
+    const { classique, thina, nom, telephone, mode, adresse, remarques, promoCode, scheduledFor } = req.body;
 
     if (mode === 'livraison' && (!adresse || !adresse.trim())) {
       return res.status(400).json({ error: 'Une adresse est obligatoire pour une livraison à domicile.' });
@@ -506,7 +528,13 @@ app.post('/create-checkout-session', async (req, res) => {
       mode: 'payment',
       payment_method_types: ['card'],
       line_items,
-      metadata: { nom, telephone, mode, adresse, classique: String(classique), thina: String(thina), scheduledFor: scheduledFor || '' },
+      metadata: {
+        nom, telephone, mode, adresse,
+        classique: String(classique),
+        thina: String(thina),
+        scheduledFor: scheduledFor || '',
+        remarques: (remarques || '').slice(0, 500)
+      },
       success_url: BASE_URL + '/success.html?session_id={CHECKOUT_SESSION_ID}',
       cancel_url: BASE_URL + '/cancel.html'
     });
@@ -581,19 +609,16 @@ app.get('/api/orders', checkAdminPassword, async (req, res) => {
 app.post('/api/orders/:id/status', checkAdminOrLivreurPassword, async (req, res) => {
   try {
     const { statut } = req.body;
+
+    if (req.livreurName) {
+      const check = await pool.query('SELECT assigned_livreur FROM orders WHERE id = $1', [req.params.id]);
+      if (check.rows.length === 0 || check.rows[0].assigned_livreur !== req.livreurName) {
+        return res.status(403).json({ error: "Cette commande ne vous est pas assignée." });
+      }
+    }
+
     await pool.query('UPDATE orders SET statut = $1 WHERE id = $2', [statut, req.params.id]);
     await logStatusChange(req.params.id, statut);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/orders/:id/eta', checkAdminPassword, async (req, res) => {
-  try {
-    const { eta } = req.body;
-    await pool.query('UPDATE orders SET eta_minutes = $1, eta_set_at = NOW() WHERE id = $2', [eta, req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -714,6 +739,7 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
       classique: proposalResult.rows[0].classique,
       thina: proposalResult.rows[0].thina,
       total: proposalResult.rows[0].total,
+      remarques: proposalResult.rows[0].remarques,
       can_decline: canDecline
     } : null;
 
@@ -732,6 +758,7 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
       classique: o.classique,
       thina: o.thina,
       total: o.total,
+      remarques: o.remarques,
       minutes_trajet: Math.round(cumulativeMinutes[i]),
       localisation_inconnue: false
     }));
@@ -748,34 +775,31 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
         classique: o.classique,
         thina: o.thina,
         total: o.total,
+        remarques: o.remarques,
         minutes_trajet: null,
         localisation_inconnue: true
       });
     });
 
-    const prepResult = await pool.query(
-      "SELECT * FROM orders WHERE mode = 'livraison' AND statut = 'en_preparation' AND eta_minutes IS NOT NULL AND eta_set_at IS NOT NULL AND lat IS NOT NULL"
-    );
+    const cookingOrders = await getCookingOrdersWithRemaining();
 
     const lastPoint = orderedOrders.length > 0
       ? { lat: orderedOrders[orderedOrders.length - 1].lat, lng: orderedOrders[orderedOrders.length - 1].lng }
       : { lat: KITCHEN_LAT, lng: KITCHEN_LNG };
 
     let bestCandidate = null;
-    for (const row of prepResult.rows) {
-      const readyAt = new Date(row.eta_set_at).getTime() + row.eta_minutes * 60000;
-      const minutesRestantes = (readyAt - Date.now()) / 60000;
-      if (minutesRestantes >= 0 && minutesRestantes <= 3) {
-        const dist = haversineDistance(lastPoint.lat, lastPoint.lng, row.lat, row.lng);
-        if (dist <= 1.5 && (!bestCandidate || minutesRestantes < bestCandidate.minutesRestantes)) {
-          bestCandidate = { id: row.id, minutesRestantes };
+    for (const c of cookingOrders) {
+      if (c.remaining <= 3) {
+        const dist = haversineDistance(lastPoint.lat, lastPoint.lng, c.lat, c.lng);
+        if (dist <= 1.5 && (!bestCandidate || c.remaining < bestCandidate.remaining)) {
+          bestCandidate = { id: c.id, remaining: c.remaining };
         }
       }
     }
 
     let wait_suggestion = null;
     if (bestCandidate) {
-      const rounded = Math.round(bestCandidate.minutesRestantes);
+      const rounded = Math.round(bestCandidate.remaining);
       wait_suggestion = {
         commande_id: bestCandidate.id,
         minutes_restantes: rounded,
@@ -805,10 +829,10 @@ app.get('/api/orders/livraison', checkLivreurPassword, async (req, res) => {
 app.get('/api/orders/export', checkAdminPassword, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
-    const header = ['numero_commande', 'date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'thina', 'total', 'statut'];
+    const header = ['numero_commande', 'date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'thina', 'total', 'statut', 'remarques'];
     const lines = [header.map(csvField).join(',')];
     for (const r of result.rows) {
-      lines.push([r.numero_commande, r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.thina, r.total, r.statut].map(csvField).join(','));
+      lines.push([r.numero_commande, r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.thina, r.total, r.statut, r.remarques].map(csvField).join(','));
     }
     const csv = lines.join('\r\n');
 

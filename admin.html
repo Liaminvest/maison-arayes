@@ -106,6 +106,15 @@
   .order-name { font-size: 17px; font-weight: 700; margin: 2px 0; }
   .order-phone { font-size: 14px; color: #c7d0db; }
   .order-detail { font-size: 14px; color: #c7d0db; margin: 10px 0 6px; line-height: 1.5; }
+  .order-remarques {
+    font-size: 13px;
+    color: #1a1208;
+    background: var(--gold);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    font-weight: 600;
+  }
   .order-scheduled {
     font-size: 17px;
     font-weight: 800;
@@ -417,6 +426,7 @@
     grid.innerHTML = visibleOrders.map(o => {
       const time = new Date(o.created_at).toLocaleString('fr-CH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       const adresseLine = o.mode === 'livraison' && o.adresse ? `<div class="order-detail">📍 ${escapeHtml(o.adresse)}</div>` : '';
+      const remarquesLine = o.remarques ? `<div class="order-remarques">📝 ${escapeHtml(o.remarques)}</div>` : '';
       const statusBtns = STATUTS.map(s =>
         `<button class="status-btn ${s === o.statut ? 'active' : ''}" onclick="setStatus(${o.id}, '${s}')">${STATUT_LABELS[s]}</button>`
       ).join('');
@@ -462,6 +472,7 @@
           ${scheduledBlock}
           <div class="order-detail">${o.classique || 0}× Classique · ${o.thina || 0}× Thina · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
           ${adresseLine}
+          ${remarquesLine}
           <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
           <div class="status-row">${pretBtn}${statusBtns}</div>
         </div>
