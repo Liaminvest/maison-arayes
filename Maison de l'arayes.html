@@ -1132,9 +1132,9 @@
     return date.toLocaleDateString('en-CA');
   }
 
-  // Capacité réelle : 25 commandes max par soir, une commande = une session
-  // payée quel que soit le nombre d'Arayes commandés. Chargée une fois au
-  // démarrage pour exclure les soirs déjà complets des créneaux proposés.
+  // Capacité de stock : un nombre max d'Arayes (Classique + XL) vendus par
+  // soir, tant que le stock n'est pas entièrement réapprovisionné. Chargée
+  // une fois au démarrage pour exclure les soirs déjà complets.
   let capacityData = null;
   let fullDates = new Set();
   async function fetchCapacity() {
@@ -1149,7 +1149,7 @@
   }
 
   // Liste tous les créneaux de 30 min réellement ouverts dans les prochains
-  // jours, en excluant les soirs ayant déjà atteint les 25 commandes.
+  // jours, en excluant les soirs déjà à capacité.
   function generateSlots() {
     const now = new Date();
     const slots = [];

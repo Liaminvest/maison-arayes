@@ -22,9 +22,9 @@ const BATCH_SIZE = 2;
 const LIVREUR_POSITION_MAX_AGE_MS = 3 * 60 * 1000;
 const LIVREUR_HEARTBEAT_TIMEOUT_MS = 45 * 1000;
 const PROPOSAL_TIMEOUT_MS = 60 * 1000;
-// Capacité réelle de la cuisine : 25 commandes par soir (une commande = une
-// session payée, quel que soit le nombre d'Arayes qu'elle contient).
-const DAILY_ORDER_CAPACITY = 25;
+// Capacité de stock : 20 Arayes (Classique + XL) par soir tant que le
+// stock n'est pas entièrement réapprovisionné.
+const DAILY_ORDER_CAPACITY = 20;
 const OPEN_WEEKDAYS = new Set([0, 1, 2, 3, 4]); // Dim-Jeu ouverts, Ven/Sam fermés
 
 let KITCHEN_LAT = null;
@@ -167,8 +167,8 @@ function weekdayOfDateStr(dateStr) {
 
 // Nombre d'Arayes (Classique + XL) déjà vendus pour un soir donné — tant que
 // le stock n'est pas entièrement réapprovisionné, c'est chaque Arayes qui
-// compte vers la limite de 25, pas chaque commande (une commande de 5
-// Arayes compte pour 5). Une commande programmée compte pour son
+// compte vers la limite de DAILY_ORDER_CAPACITY, pas chaque commande (une
+// commande de 5 Arayes compte pour 5). Une commande programmée compte pour son
 // scheduled_for, une commande immédiate pour son created_at — les deux
 // convertis en date locale de Genève.
 async function getOrderCountForDate(dateStr) {
@@ -489,7 +489,7 @@ app.post('/create-checkout-session', async (req, res) => {
       return res.status(400).json({ error: 'Une adresse est obligatoire pour une livraison à domicile.' });
     }
 
-    // Capacité de 25 Arayes (Classique + XL) par soir, tant que le stock
+    // Capacité d'Arayes (Classique + XL) par soir, tant que le stock
     // n'est pas entièrement réapprovisionné : chaque Arayes vendu compte vers
     // la limite, pas chaque commande (5 Arayes dans une commande = 5).
     const serviceDateStr = scheduledFor ? zurichDateStr(new Date(scheduledFor)) : zurichDateStr(new Date());
@@ -618,7 +618,7 @@ app.get('/avis', (req, res) => {
   res.sendFile(__dirname + '/avis.html');
 });
 
-// État de la capacité (25 Arayes/soir, tant que le stock n'est pas
+// État de la capacité (Arayes/soir, tant que le stock n'est pas
 // entièrement réapprovisionné) : utilisé par le site pour afficher le
 // compteur et limiter les créneaux de précommande proposés aux soirs
 // encore disponibles.
