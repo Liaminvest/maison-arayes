@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Permanent+Marker&family=Work+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
     --bg: #0D0D0D;
@@ -114,6 +116,48 @@
   }
   .recap-card .lbl { font-family: var(--fn-head); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
   .recap-card .val { font-size: 26px; font-weight: 700; margin-top: 6px; font-family: var(--fn-head); }
+
+  .livreur-tracker {
+    background: var(--bg3);
+    border: 2px solid var(--white);
+    margin-bottom: 28px;
+    padding: 18px;
+  }
+  .livreur-tracker-head h2 {
+    font-family: var(--fn-head);
+    font-size: 16px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .04em;
+    margin: 0 0 14px;
+  }
+  .livreur-tracker-body {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 14px;
+  }
+  #livreur-map {
+    height: 320px;
+    border: 2px solid var(--accent);
+    background: var(--bg2);
+  }
+  .livreur-list { display: flex; flex-direction: column; gap: 10px; }
+  .livreur-item {
+    background: var(--bg2);
+    border: 2px solid rgba(242,239,230,0.2);
+    padding: 12px 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .livreur-item .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--muted); flex-shrink: 0;
+  }
+  .livreur-item.online .dot { background: #2E9E5B; box-shadow: 0 0 6px #2E9E5B; }
+  .livreur-item .info { flex: 1; min-width: 0; }
+  .livreur-item .name { font-family: var(--fn-head); font-weight: 700; font-size: 14px; text-transform: uppercase; }
+  .livreur-item .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .livreur-item .meta.far { color: var(--accent); font-weight: 700; }
+  @media (max-width: 720px) {
+    .livreur-tracker-body { grid-template-columns: 1fr; }
+  }
 
   .orders-grid {
     display: grid;
@@ -276,6 +320,14 @@
 
     <div class="recap" id="recap"></div>
 
+    <div class="livreur-tracker" id="livreur-tracker" style="display:none;">
+      <div class="livreur-tracker-head"><h2>🛵 Livreurs en temps réel</h2></div>
+      <div class="livreur-tracker-body">
+        <div id="livreur-map"></div>
+        <div class="livreur-list" id="livreur-list"></div>
+      </div>
+    </div>
+
     <div class="orders-grid" id="orders-grid"></div>
   </div>
 </div>
@@ -407,7 +459,100 @@
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
     if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = setInterval(() => tryFetchOrders(password), 10000);
+    fetchLivreurPositions();
+    refreshTimer = setInterval(() => {
+      tryFetchOrders(password);
+      fetchLivreurPositions();
+    }, 10000);
+  }
+
+  // ── Suivi des livreurs sur la carte ──────────────────────────────
+  let livreurMap = null;
+  let livreurMarkers = {};
+
+  function initLivreurMap(kitchenLat, kitchenLng) {
+    if (livreurMap || kitchenLat === null || kitchenLng === null) return;
+    livreurMap = L.map('livreur-map', { attributionControl: false }).setView([kitchenLat, kitchenLng], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      maxZoom: 19
+    }).addTo(livreurMap);
+    L.marker([kitchenLat, kitchenLng], {
+      icon: L.divIcon({ className: '', html: '<div style="font-size:26px;">🏠</div>', iconSize: [30, 30] })
+    }).addTo(livreurMap).bindPopup('Cuisine');
+  }
+
+  function livreurIcon(online) {
+    return L.divIcon({
+      className: '',
+      html: `<div style="font-size:26px; filter:${online ? 'none' : 'grayscale(1) opacity(0.5)'};">🛵</div>`,
+      iconSize: [30, 30]
+    });
+  }
+
+  async function fetchLivreurPositions() {
+    try {
+      const res = await fetch('/api/livreurs/positions', { headers: { 'x-admin-password': password } });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const tracker = document.getElementById('livreur-tracker');
+      tracker.style.display = data.livreurs.length ? 'block' : 'none';
+      if (!data.livreurs.length) return;
+
+      initLivreurMap(data.kitchen.lat, data.kitchen.lng);
+
+      const listEl = document.getElementById('livreur-list');
+      listEl.innerHTML = data.livreurs.map(l => {
+        let meta;
+        if (!l.online) {
+          meta = 'Hors ligne';
+        } else if (l.distanceKm === null) {
+          meta = 'En ligne · position inconnue';
+        } else {
+          meta = `${l.distanceKm.toFixed(1)} km de la cuisine`;
+        }
+        const farClass = (l.online && l.distanceKm !== null && l.distanceKm > 2) ? 'far' : '';
+        return `
+          <div class="livreur-item ${l.online ? 'online' : ''}">
+            <div class="dot"></div>
+            <div class="info">
+              <div class="name">${escapeHtml(l.name)}</div>
+              <div class="meta ${farClass}">${meta}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      if (!livreurMap) return;
+
+      const seen = new Set();
+      data.livreurs.forEach(l => {
+        if (l.lat === null || l.lng === null) {
+          if (livreurMarkers[l.name]) {
+            livreurMap.removeLayer(livreurMarkers[l.name]);
+            delete livreurMarkers[l.name];
+          }
+          return;
+        }
+        seen.add(l.name);
+        if (livreurMarkers[l.name]) {
+          livreurMarkers[l.name].setLatLng([l.lat, l.lng]);
+          livreurMarkers[l.name].setIcon(livreurIcon(l.online));
+        } else {
+          livreurMarkers[l.name] = L.marker([l.lat, l.lng], { icon: livreurIcon(l.online) }).addTo(livreurMap);
+        }
+        livreurMarkers[l.name].bindPopup(`${escapeHtml(l.name)} — ${l.online ? 'en ligne' : 'hors ligne'}`);
+      });
+      Object.keys(livreurMarkers).forEach(name => {
+        if (!seen.has(name)) {
+          livreurMap.removeLayer(livreurMarkers[name]);
+          delete livreurMarkers[name];
+        }
+      });
+    } catch (err) {
+      // silently retry on next poll
+    }
   }
 
   function renderOrders(orders) {

@@ -691,6 +691,28 @@ app.get('/api/orders', checkAdminPassword, async (req, res) => {
   }
 });
 
+// Position de chaque livreur connu pour le suivi en temps réel côté cuisine.
+app.get('/api/livreurs/positions', checkAdminPassword, (req, res) => {
+  const now = Date.now();
+  const result = Object.keys(LIVREUR_PASSWORDS).map(name => {
+    const entry = livreurs[name];
+    const online = !!(entry && entry.online && (now - entry.lastSeen) < LIVREUR_HEARTBEAT_TIMEOUT_MS);
+    const hasFreshPosition = !!(entry && entry.lat !== null && (now - entry.lastSeen) < LIVREUR_POSITION_MAX_AGE_MS);
+    const distanceKm = (hasFreshPosition && KITCHEN_LAT !== null && KITCHEN_LNG !== null)
+      ? haversineDistance(KITCHEN_LAT, KITCHEN_LNG, entry.lat, entry.lng)
+      : null;
+    return {
+      name,
+      online,
+      lat: hasFreshPosition ? entry.lat : null,
+      lng: hasFreshPosition ? entry.lng : null,
+      distanceKm,
+      lastSeen: entry ? entry.lastSeen : null
+    };
+  });
+  res.json({ kitchen: { lat: KITCHEN_LAT, lng: KITCHEN_LNG }, livreurs: result });
+});
+
 app.post('/api/orders/:id/status', checkAdminOrLivreurPassword, async (req, res) => {
   try {
     const { statut } = req.body;
