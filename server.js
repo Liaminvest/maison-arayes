@@ -67,6 +67,7 @@ async function initDb() {
     )
   `);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS thina INT DEFAULT 0`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS xl INT DEFAULT 0`);
   await pool.query(`ALTER TABLE orders DROP COLUMN IF EXISTS eta`);
   // eta_minutes/eta_set_at étaient renseignés manuellement par un endpoint
   // jamais appelé depuis l'admin ; remplacés par l'estimation automatique
@@ -448,15 +449,16 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     const session = event.data.object;
     const metadata = session.metadata || {};
     const classique = parseInt(metadata.classique || '0', 10);
+    const xl = parseInt(metadata.xl || '0', 10);
     const thina = parseInt(metadata.thina || '0', 10);
     const total = (session.amount_total || 0) / 100;
     const scheduledFor = metadata.scheduledFor ? new Date(metadata.scheduledFor) : null;
 
     try {
       const inserted = await pool.query(
-        `INSERT INTO orders (nom, telephone, mode, adresse, classique, thina, total, scheduled_for, stripe_session_id, remarques)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, thina, total, scheduledFor, session.id, metadata.remarques || '']
+        `INSERT INTO orders (nom, telephone, mode, adresse, classique, xl, thina, total, scheduled_for, stripe_session_id, remarques)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+        [metadata.nom, metadata.telephone, metadata.mode, metadata.adresse, classique, xl, thina, total, scheduledFor, session.id, metadata.remarques || '']
       );
       const orderId = inserted.rows[0].id;
       const numeroCommande = `CMD-${String(orderId).padStart(6, '0')}`;
@@ -482,7 +484,7 @@ app.use(express.static(__dirname));
 
 app.post('/create-checkout-session', async (req, res) => {
   try {
-    const { classique, thina, nom, telephone, mode, adresse, remarques, promoCode, scheduledFor } = req.body;
+    const { classique, xl, thina, nom, telephone, mode, adresse, remarques, promoCode, scheduledFor } = req.body;
 
     if (mode === 'livraison' && (!adresse || !adresse.trim())) {
       return res.status(400).json({ error: 'Une adresse est obligatoire pour une livraison à domicile.' });
@@ -501,6 +503,16 @@ app.post('/create-checkout-session', async (req, res) => {
           unit_amount: Math.round(1295 * discountFactor)
         },
         quantity: classique
+      });
+    }
+    if (xl > 0) {
+      line_items.push({
+        price_data: {
+          currency: 'chf',
+          product_data: { name: `Arayes XL${promoSuffix}` },
+          unit_amount: Math.round(1695 * discountFactor)
+        },
+        quantity: xl
       });
     }
     if (thina > 0) {
@@ -531,6 +543,7 @@ app.post('/create-checkout-session', async (req, res) => {
       metadata: {
         nom, telephone, mode, adresse,
         classique: String(classique),
+        xl: String(xl),
         thina: String(thina),
         scheduledFor: scheduledFor || '',
         remarques: (remarques || '').slice(0, 500)
@@ -737,6 +750,7 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
       nom: proposalResult.rows[0].nom,
       adresse: proposalResult.rows[0].adresse,
       classique: proposalResult.rows[0].classique,
+      xl: proposalResult.rows[0].xl,
       thina: proposalResult.rows[0].thina,
       total: proposalResult.rows[0].total,
       remarques: proposalResult.rows[0].remarques,
@@ -756,6 +770,7 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
       telephone: o.telephone,
       adresse: o.adresse,
       classique: o.classique,
+      xl: o.xl,
       thina: o.thina,
       total: o.total,
       remarques: o.remarques,
@@ -773,6 +788,7 @@ app.get('/api/orders/route', checkLivreurPassword, async (req, res) => {
         telephone: o.telephone,
         adresse: o.adresse,
         classique: o.classique,
+        xl: o.xl,
         thina: o.thina,
         total: o.total,
         remarques: o.remarques,
@@ -829,10 +845,10 @@ app.get('/api/orders/livraison', checkLivreurPassword, async (req, res) => {
 app.get('/api/orders/export', checkAdminPassword, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
-    const header = ['numero_commande', 'date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'thina', 'total', 'statut', 'remarques'];
+    const header = ['numero_commande', 'date', 'nom', 'telephone', 'mode', 'adresse', 'classique', 'xl', 'thina', 'total', 'statut', 'remarques'];
     const lines = [header.map(csvField).join(',')];
     for (const r of result.rows) {
-      lines.push([r.numero_commande, r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.thina, r.total, r.statut, r.remarques].map(csvField).join(','));
+      lines.push([r.numero_commande, r.created_at, r.nom, r.telephone, r.mode, r.adresse, r.classique, r.xl, r.thina, r.total, r.statut, r.remarques].map(csvField).join(','));
     }
     const csv = lines.join('\r\n');
 

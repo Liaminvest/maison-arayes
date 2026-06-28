@@ -458,7 +458,7 @@
           <div class="proposal-badge">🆕 Nouvelle commande disponible</div>
           <div class="order-name">${escapeHtml(proposal.nom || '—')}${proposal.numero_commande ? ' · ' + escapeHtml(proposal.numero_commande) : ''}</div>
           <div class="order-adresse">📍 ${escapeHtml(proposal.adresse || 'Adresse non renseignée')}</div>
-          <div class="order-detail">${proposal.classique || 0}× Classique · ${proposal.thina || 0}× Thina</div>
+          <div class="order-detail">${proposal.classique || 0}× Classique · ${proposal.xl || 0}× XL · ${proposal.thina || 0}× Thina</div>
           ${proposal.remarques ? `<div class="order-remarques">📝 ${escapeHtml(proposal.remarques)}</div>` : ''}
           <div class="order-total">${parseFloat(proposal.total || 0).toFixed(2)} CHF</div>
           <div class="proposal-actions">
@@ -499,7 +499,7 @@
         <div class="order-adresse">📍 ${escapeHtml(s.adresse || 'Adresse non renseignée')}</div>
         <div class="order-name">${escapeHtml(s.nom || '—')}</div>
         <div class="order-phone"><a href="tel:${encodeURIComponent(s.telephone || '')}">📞 ${escapeHtml(s.telephone || '—')}</a></div>
-        <div class="order-detail">${s.classique || 0}× Classique · ${s.thina || 0}× Thina</div>
+        <div class="order-detail">${s.classique || 0}× Classique · ${s.xl || 0}× XL · ${s.thina || 0}× Thina</div>
         ${s.remarques ? `<div class="order-remarques">📝 ${escapeHtml(s.remarques)}</div>` : ''}
         ${s.localisation_inconnue
           ? '<div class="localisation-warning">⚠️ Adresse non localisée — appelez le client pour confirmer le trajet</div>'

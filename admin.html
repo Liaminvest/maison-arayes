@@ -444,12 +444,14 @@
     const totalCommandes = visibleOrders.length;
     const totalCA = visibleOrders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
     const totalClassique = visibleOrders.reduce((sum, o) => sum + (o.classique || 0), 0);
+    const totalXL = visibleOrders.reduce((sum, o) => sum + (o.xl || 0), 0);
     const totalThina = visibleOrders.reduce((sum, o) => sum + (o.thina || 0), 0);
 
     document.getElementById('recap').innerHTML = `
       <div class="recap-card"><div class="lbl">Commandes</div><div class="val">${totalCommandes}</div></div>
       <div class="recap-card"><div class="lbl">Chiffre d'affaires</div><div class="val">${totalCA.toFixed(2)} CHF</div></div>
       <div class="recap-card"><div class="lbl">Arayes Classique</div><div class="val">${totalClassique}</div></div>
+      <div class="recap-card"><div class="lbl">Arayes XL</div><div class="val">${totalXL}</div></div>
       <div class="recap-card"><div class="lbl">Pots de Thina</div><div class="val">${totalThina}</div></div>
     `;
 
@@ -505,7 +507,7 @@
             <span class="badge ${o.statut}">${STATUT_LABELS[o.statut] || o.statut}</span>
           </div>
           ${scheduledBlock}
-          <div class="order-detail">${o.classique || 0}× Classique · ${o.thina || 0}× Thina · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
+          <div class="order-detail">${o.classique || 0}× Classique · ${o.xl || 0}× XL · ${o.thina || 0}× Thina · ${o.mode === 'livraison' ? 'Livraison' : 'Retrait'}</div>
           ${adresseLine}
           ${remarquesLine}
           <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
