@@ -693,6 +693,9 @@
   }
 
   async function setStatus(id, statut) {
+    if (statut === 'livre' && !confirm('Confirmer que cette commande a bien été livrée ?')) {
+      return;
+    }
     try {
       await fetch(`/api/orders/${id}/status`, {
         method: 'POST',
