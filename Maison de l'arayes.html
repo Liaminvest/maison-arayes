@@ -474,6 +474,18 @@
     .cmd-left h2 em { font-style: normal; color: var(--accent); }
     .cmd-left p { font-size: 15px; font-weight: 600; color: var(--muted); margin-bottom: 36px; }
     .cmd-infos { display: flex; flex-direction: column; gap: 14px; margin-bottom: 40px; }
+    .capacity-counter {
+      background: var(--bg3);
+      border: 2px solid var(--accent);
+      color: var(--accent);
+      font-family: var(--fn-head);
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+    }
     .cmd-row { display: flex; align-items: center; gap: 14px; }
     .cmd-ic {
       width: 38px; height: 38px;
@@ -838,6 +850,14 @@
       <div class="cmd-form">
         <h3>Votre commande</h3>
 
+        <div id="capacity-counter" class="capacity-counter" style="display:none;"></div>
+
+        <div class="fg" id="soldout-notice" style="display:none; background:var(--bg3); border:2px solid var(--accent); border-radius:0; padding:14px;">
+          <strong style="color:var(--accent); font-family:var(--fn-head); text-transform:uppercase;">🔥 Complet pour ce soir !</strong>
+          <p style="margin:6px 0 0; font-size:14px; color:var(--muted);">Désolé, nous sommes victimes de notre succès : il n'y a plus d'Arayes pour ce soir.</p>
+          <p style="margin:10px 0 0; font-size:14px; color:var(--cream);" id="soldout-next-text"></p>
+        </div>
+
         <div class="fg" id="closed-notice" style="display:none; background:var(--bg3); border:2px solid var(--accent); border-radius:0; padding:14px;">
           <strong style="color:var(--accent); font-family:var(--fn-head); text-transform:uppercase;">🕐 Nous sommes actuellement fermés.</strong>
           <p style="margin:6px 0 0; font-size:14px; color:var(--muted);" id="closed-notice-text"></p>
@@ -1084,13 +1104,35 @@
     return date.toLocaleString('fr-CH', { weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
-  // Liste tous les créneaux de 30 min réellement ouverts dans les prochains jours.
+  function dateKey(date) {
+    return date.toLocaleDateString('en-CA');
+  }
+
+  // Capacité réelle : 25 commandes max par soir, une commande = une session
+  // payée quel que soit le nombre d'Arayes commandés. Chargée une fois au
+  // démarrage pour exclure les soirs déjà complets des créneaux proposés.
+  let capacityData = null;
+  let fullDates = new Set();
+  async function fetchCapacity() {
+    try {
+      const res = await fetch('/api/capacity');
+      capacityData = await res.json();
+      fullDates = new Set((capacityData.days || []).filter(d => d.full).map(d => d.date));
+    } catch (err) {
+      capacityData = null;
+      fullDates = new Set();
+    }
+  }
+
+  // Liste tous les créneaux de 30 min réellement ouverts dans les prochains
+  // jours, en excluant les soirs ayant déjà atteint les 25 commandes.
   function generateSlots() {
     const now = new Date();
     const slots = [];
     for (let i = 0; i < 8; i++) {
       const day = new Date(now);
       day.setDate(day.getDate() + i);
+      if (fullDates.has(dateKey(day))) continue;
       const win = getDayWindow(day);
       if (!win) continue;
       let t = new Date(win.open);
@@ -1109,6 +1151,11 @@
     return `${dayName.charAt(0).toUpperCase()}${dayName.slice(1)} ${dateStr} ${timeStr}`;
   }
 
+  function formatDateLabel(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('fr-CH', { weekday: 'long', day: '2-digit', month: '2-digit' });
+  }
+
   function populateScheduleSelect() {
     const slots = generateSlots();
     scheduleDatetime.innerHTML = slots
@@ -1119,30 +1166,58 @@
 
   const closedNotice = document.getElementById('closed-notice');
   const closedNoticeText = document.getElementById('closed-notice-text');
+  const soldoutNotice = document.getElementById('soldout-notice');
+  const soldoutNextText = document.getElementById('soldout-next-text');
+  const capacityCounter = document.getElementById('capacity-counter');
   const scheduleCheckboxFg = document.getElementById('schedule-checkbox-fg');
   const scheduleCheckbox = document.getElementById('schedule-checkbox');
   const scheduleDatetimeFg = document.getElementById('schedule-datetime-fg');
   const scheduleDatetime = document.getElementById('schedule-datetime');
 
   const shopOpenNow = isOpenAt(new Date());
+  let todayFull = false;
 
-  if (!shopOpenNow) {
-    const nextOpening = getNextOpening(new Date());
-    closedNotice.style.display = 'block';
-    closedNoticeText.textContent = nextOpening
-      ? `Nous ne pouvons pas traiter de commande immédiate. Choisissez un créneau à partir de la prochaine ouverture : ${formatDateTime(nextOpening)}.`
-      : 'Nous sommes actuellement fermés.';
-    scheduleDatetimeFg.style.display = 'block';
-    populateScheduleSelect();
-  } else {
-    scheduleCheckboxFg.style.display = 'block';
-    scheduleCheckbox.addEventListener('change', () => {
-      scheduleDatetimeFg.style.display = scheduleCheckbox.checked ? 'block' : 'none';
-      if (scheduleCheckbox.checked && !scheduleDatetime.options.length) {
-        populateScheduleSelect();
-      }
-    });
+  async function initScheduling() {
+    await fetchCapacity();
+    todayFull = !!(capacityData && capacityData.today && capacityData.today.full);
+
+    if (todayFull) {
+      soldoutNotice.style.display = 'block';
+      const nextDate = capacityData.nextAvailableDate;
+      soldoutNextText.textContent = nextDate
+        ? `Voulez-vous précommander pour ${formatDateLabel(nextDate)} ?`
+        : 'Revenez bientôt pour précommander.';
+      scheduleDatetimeFg.style.display = 'block';
+      populateScheduleSelect();
+      return;
+    }
+
+    if (capacityData && capacityData.today && capacityData.today.open) {
+      capacityCounter.style.display = 'block';
+      const r = capacityData.today.remaining;
+      capacityCounter.textContent = `🔥 Encore ${r} commande${r === 1 ? '' : 's'} possible${r === 1 ? '' : 's'} ce soir`;
+    }
+
+    if (!shopOpenNow) {
+      const nextOpening = getNextOpening(new Date());
+      closedNotice.style.display = 'block';
+      closedNoticeText.textContent = nextOpening
+        ? `Nous ne pouvons pas traiter de commande immédiate. Choisissez un créneau à partir de la prochaine ouverture : ${formatDateTime(nextOpening)}.`
+        : 'Nous sommes actuellement fermés.';
+      scheduleDatetimeFg.style.display = 'block';
+      populateScheduleSelect();
+    } else {
+      scheduleCheckboxFg.style.display = 'block';
+      scheduleCheckbox.addEventListener('change', () => {
+        scheduleDatetimeFg.style.display = scheduleCheckbox.checked ? 'block' : 'none';
+        if (scheduleCheckbox.checked && !scheduleDatetime.options.length) {
+          populateScheduleSelect();
+        }
+      });
+    }
   }
+
+  initScheduling();
 
   // Hide address/quartier when pickup
   const modeSelect = document.getElementById('mode-select');
@@ -1232,7 +1307,7 @@
     }
 
     let scheduledFor = null;
-    const wantsSchedule = !shopOpenNow || scheduleCheckbox.checked;
+    const wantsSchedule = !shopOpenNow || todayFull || scheduleCheckbox.checked;
     if (wantsSchedule) {
       if (!scheduleDatetime.value) {
         alert("Aucun créneau disponible pour le moment. Contactez-nous via WhatsApp pour passer votre commande.");
@@ -1267,6 +1342,15 @@
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
+      } else if (data.full) {
+        const dateUsed = scheduledFor ? dateKey(new Date(scheduledFor)) : dateKey(new Date());
+        fullDates.add(dateUsed);
+        const nextMsg = data.nextAvailableDate ? ` Voulez-vous précommander pour ${formatDateLabel(data.nextAvailableDate)} ?` : '';
+        alert(`🔥 Désolé, nous sommes victimes de notre succès : il n'y a plus d'Arayes disponibles pour ce soir-là.${nextMsg}`);
+        scheduleDatetimeFg.style.display = 'block';
+        populateScheduleSelect();
+        payBtn.disabled = false;
+        payBtn.textContent = '💳 Payer ma commande';
       } else {
         throw new Error(data.error || 'Pas d\'URL de paiement reçue');
       }

@@ -22,6 +22,10 @@ const BATCH_SIZE = 2;
 const LIVREUR_POSITION_MAX_AGE_MS = 3 * 60 * 1000;
 const LIVREUR_HEARTBEAT_TIMEOUT_MS = 45 * 1000;
 const PROPOSAL_TIMEOUT_MS = 60 * 1000;
+// Capacité réelle de la cuisine : 25 commandes par soir (une commande = une
+// session payée, quel que soit le nombre d'Arayes qu'elle contient).
+const DAILY_ORDER_CAPACITY = 25;
+const OPEN_WEEKDAYS = new Set([0, 1, 2, 3, 4]); // Dim-Jeu ouverts, Ven/Sam fermés
 
 let KITCHEN_LAT = null;
 let KITCHEN_LNG = null;
@@ -148,6 +152,44 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Date du jour à Genève, au format 'YYYY-MM-DD'.
+function zurichDateStr(date) {
+  return date.toLocaleDateString('en-CA', { timeZone: 'Europe/Zurich' });
+}
+
+// Jour de la semaine (0=dimanche) d'une date 'YYYY-MM-DD', sans ambiguïté
+// de fuseau horaire (ancrée à midi UTC, jamais à plus de 2h de Genève).
+function weekdayOfDateStr(dateStr) {
+  return new Date(dateStr + 'T12:00:00Z').getUTCDay();
+}
+
+// Nombre de commandes déjà comptabilisées pour un soir donné : une commande
+// programmée compte pour son scheduled_for, une commande immédiate pour son
+// created_at — les deux convertis en date locale de Genève.
+async function getOrderCountForDate(dateStr) {
+  const result = await pool.query(
+    `SELECT COUNT(*) FROM orders
+     WHERE to_char((COALESCE(scheduled_for, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Zurich', 'YYYY-MM-DD') = $1`,
+    [dateStr]
+  );
+  return parseInt(result.rows[0].count, 10);
+}
+
+// Premier soir ouvert et non complet après la date donnée — utilisé pour
+// proposer une précommande quand le soir même est plein.
+async function findNextAvailableDate(afterDateStr) {
+  const start = new Date(afterDateStr + 'T12:00:00Z');
+  for (let i = 1; i <= 30; i++) {
+    const d = new Date(start);
+    d.setUTCDate(d.getUTCDate() + i);
+    if (!OPEN_WEEKDAYS.has(d.getUTCDay())) continue;
+    const dateStr = d.toISOString().slice(0, 10);
+    const count = await getOrderCountForDate(dateStr);
+    if (count < DAILY_ORDER_CAPACITY) return dateStr;
+  }
+  return null;
 }
 
 // Combien de commandes sont déjà en file (pas encore prêtes) avant celle-ci.
@@ -444,6 +486,22 @@ app.post('/create-checkout-session', async (req, res) => {
       return res.status(400).json({ error: 'Une adresse est obligatoire pour une livraison à domicile.' });
     }
 
+    // Capacité de 25 commandes par soir : on vérifie le soir visé par CETTE
+    // commande (programmée ou immédiate) avant de créer la session Stripe.
+    const serviceDateStr = scheduledFor ? zurichDateStr(new Date(scheduledFor)) : zurichDateStr(new Date());
+    if (!OPEN_WEEKDAYS.has(weekdayOfDateStr(serviceDateStr))) {
+      return res.status(400).json({ error: 'Nous sommes fermés ce jour-là.' });
+    }
+    const countForServiceDate = await getOrderCountForDate(serviceDateStr);
+    if (countForServiceDate >= DAILY_ORDER_CAPACITY) {
+      const nextAvailableDate = await findNextAvailableDate(serviceDateStr);
+      return res.status(409).json({
+        error: 'Désolé, nous sommes victimes de notre succès : il n\'y a plus d\'Arayes disponibles ce soir-là.',
+        full: true,
+        nextAvailableDate
+      });
+    }
+
     // Payer le solde en espèces/Twint sur place n'est proposé que pour le retrait.
     const cashOnPickup = !!(payOnPickup && mode === 'retrait');
 
@@ -549,6 +607,50 @@ app.get('/livreur', (req, res) => {
 
 app.get('/avis', (req, res) => {
   res.sendFile(__dirname + '/avis.html');
+});
+
+// État de la capacité (25 commandes/soir) : utilisé par le site pour
+// afficher le compteur et limiter les créneaux de précommande proposés
+// aux soirs encore disponibles.
+app.get('/api/capacity', async (req, res) => {
+  try {
+    const todayStr = zurichDateStr(new Date());
+    const todayOpen = OPEN_WEEKDAYS.has(weekdayOfDateStr(todayStr));
+    const todayCount = await getOrderCountForDate(todayStr);
+    const todayFull = todayOpen && todayCount >= DAILY_ORDER_CAPACITY;
+
+    const days = [];
+    for (let i = 0; i <= 14; i++) {
+      const d = new Date(todayStr + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + i);
+      if (!OPEN_WEEKDAYS.has(d.getUTCDay())) continue;
+      const dateStr = d.toISOString().slice(0, 10);
+      const count = await getOrderCountForDate(dateStr);
+      days.push({
+        date: dateStr,
+        remaining: Math.max(0, DAILY_ORDER_CAPACITY - count),
+        full: count >= DAILY_ORDER_CAPACITY
+      });
+    }
+
+    const nextAvailableDate = todayFull ? await findNextAvailableDate(todayStr) : null;
+
+    res.json({
+      today: {
+        date: todayStr,
+        open: todayOpen,
+        count: todayCount,
+        capacity: DAILY_ORDER_CAPACITY,
+        remaining: Math.max(0, DAILY_ORDER_CAPACITY - todayCount),
+        full: todayFull
+      },
+      days,
+      nextAvailableDate
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/avis', async (req, res) => {
