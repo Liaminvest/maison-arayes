@@ -485,6 +485,10 @@ app.post('/create-checkout-session', async (req, res) => {
   try {
     const { classique, xl, thina, nom, telephone, mode, adresse, remarques, promoCode, scheduledFor, payOnPickup } = req.body;
 
+    if (!telephone || !telephone.trim()) {
+      return res.status(400).json({ error: 'Un numéro de téléphone est obligatoire pour passer commande.' });
+    }
+
     if (mode === 'livraison' && (!adresse || !adresse.trim())) {
       return res.status(400).json({ error: 'Une adresse est obligatoire pour une livraison à domicile.' });
     }
