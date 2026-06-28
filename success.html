@@ -114,6 +114,11 @@
     margin: 0 0 24px;
     min-height: 24px;
   }
+  .follow-note {
+    font-size: 13px;
+    color: var(--muted);
+    margin: -10px 0 24px;
+  }
 </style>
 </head>
 <body>
@@ -122,10 +127,12 @@
     <h1>Commande confirmée !</h1>
     <p>
       Merci pour votre commande !<br/>
-      Un message WhatsApp de confirmation vous sera envoyé sous peu.
+      Vous pouvez suivre son état directement sur cette page.
     </p>
 
     <div class="eta-box" id="eta-text">Calcul de l'estimation...</div>
+
+    <p class="follow-note">⏱ Le temps indiqué est indicatif. Nous vous appelons dès que votre commande est prête.</p>
 
     <div class="notify-block">
       <button class="btn-notify" id="notify-btn" onclick="enableNotify()">🔔 Me notifier quand ma commande est prête</button>
