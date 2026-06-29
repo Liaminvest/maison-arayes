@@ -26,6 +26,13 @@ const PROPOSAL_TIMEOUT_MS = 60 * 1000;
 // stock n'est pas entièrement réapprovisionné.
 const DAILY_ORDER_CAPACITY = 20;
 const OPEN_WEEKDAYS = new Set([0, 1, 2, 3, 4]); // Dim-Jeu ouverts, Ven/Sam fermés
+// Reprise des commandes le 1er juillet : la précommande reste possible dès
+// maintenant, mais uniquement pour un créneau à partir de cette date — les
+// commandes immédiates et les créneaux avant le 1er juillet sont bloqués.
+const LAUNCH_DATE = '2026-07-01';
+function isBeforeLaunch(dateStr) {
+  return dateStr < LAUNCH_DATE;
+}
 
 let KITCHEN_LAT = null;
 let KITCHEN_LNG = null;
@@ -189,6 +196,7 @@ async function findNextAvailableDate(afterDateStr) {
     d.setUTCDate(d.getUTCDate() + i);
     if (!OPEN_WEEKDAYS.has(d.getUTCDay())) continue;
     const dateStr = d.toISOString().slice(0, 10);
+    if (isBeforeLaunch(dateStr)) continue;
     const count = await getOrderCountForDate(dateStr);
     if (count < DAILY_ORDER_CAPACITY) return dateStr;
   }
@@ -500,6 +508,15 @@ app.post('/create-checkout-session', async (req, res) => {
     if (!OPEN_WEEKDAYS.has(weekdayOfDateStr(serviceDateStr))) {
       return res.status(400).json({ error: 'Nous sommes fermés ce jour-là.' });
     }
+    if (isBeforeLaunch(serviceDateStr)) {
+      const nextAvailableDate = await findNextAvailableDate(serviceDateStr);
+      return res.status(409).json({
+        error: 'Les commandes reprennent le 1er juillet. Précommandez dès maintenant pour cette date !',
+        full: true,
+        beforeLaunch: true,
+        nextAvailableDate: nextAvailableDate || LAUNCH_DATE
+      });
+    }
     const requestedArayes = (parseInt(classique, 10) || 0) + (parseInt(xl, 10) || 0);
     const countForServiceDate = await getOrderCountForDate(serviceDateStr);
     if (countForServiceDate + requestedArayes > DAILY_ORDER_CAPACITY) {
@@ -630,8 +647,9 @@ app.get('/api/capacity', async (req, res) => {
   try {
     const todayStr = zurichDateStr(new Date());
     const todayOpen = OPEN_WEEKDAYS.has(weekdayOfDateStr(todayStr));
-    const todayCount = await getOrderCountForDate(todayStr);
-    const todayFull = todayOpen && todayCount >= DAILY_ORDER_CAPACITY;
+    const todayBeforeLaunch = isBeforeLaunch(todayStr);
+    const todayCount = todayBeforeLaunch ? 0 : await getOrderCountForDate(todayStr);
+    const todayFull = todayBeforeLaunch || (todayOpen && todayCount >= DAILY_ORDER_CAPACITY);
 
     const days = [];
     for (let i = 0; i <= 14; i++) {
@@ -639,11 +657,12 @@ app.get('/api/capacity', async (req, res) => {
       d.setUTCDate(d.getUTCDate() + i);
       if (!OPEN_WEEKDAYS.has(d.getUTCDay())) continue;
       const dateStr = d.toISOString().slice(0, 10);
-      const count = await getOrderCountForDate(dateStr);
+      const beforeLaunch = isBeforeLaunch(dateStr);
+      const count = beforeLaunch ? DAILY_ORDER_CAPACITY : await getOrderCountForDate(dateStr);
       days.push({
         date: dateStr,
-        remaining: Math.max(0, DAILY_ORDER_CAPACITY - count),
-        full: count >= DAILY_ORDER_CAPACITY
+        remaining: beforeLaunch ? 0 : Math.max(0, DAILY_ORDER_CAPACITY - count),
+        full: beforeLaunch || count >= DAILY_ORDER_CAPACITY
       });
     }
 
@@ -653,9 +672,10 @@ app.get('/api/capacity', async (req, res) => {
       today: {
         date: todayStr,
         open: todayOpen,
+        beforeLaunch: todayBeforeLaunch,
         count: todayCount,
         capacity: DAILY_ORDER_CAPACITY,
-        remaining: Math.max(0, DAILY_ORDER_CAPACITY - todayCount),
+        remaining: todayBeforeLaunch ? 0 : Math.max(0, DAILY_ORDER_CAPACITY - todayCount),
         full: todayFull
       },
       days,

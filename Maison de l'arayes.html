@@ -864,8 +864,8 @@
         <div id="capacity-counter" class="capacity-counter" style="display:none;"></div>
 
         <div class="fg" id="soldout-notice" style="display:none; background:var(--bg3); border:2px solid var(--accent); border-radius:0; padding:14px;">
-          <strong style="color:var(--accent); font-family:var(--fn-head); text-transform:uppercase;">🔥 Complet pour ce soir !</strong>
-          <p style="margin:6px 0 0; font-size:14px; color:var(--muted);">Désolé, nous sommes victimes de notre succès : il n'y a plus d'Arayes pour ce soir.</p>
+          <strong style="color:var(--accent); font-family:var(--fn-head); text-transform:uppercase;" id="soldout-title">🔥 Complet pour ce soir !</strong>
+          <p style="margin:6px 0 0; font-size:14px; color:var(--muted);" id="soldout-desc">Désolé, nous sommes victimes de notre succès : il n'y a plus d'Arayes pour ce soir.</p>
           <p style="margin:10px 0 0; font-size:14px; color:var(--cream);" id="soldout-next-text"></p>
         </div>
 
@@ -1191,6 +1191,8 @@
   const closedNotice = document.getElementById('closed-notice');
   const closedNoticeText = document.getElementById('closed-notice-text');
   const soldoutNotice = document.getElementById('soldout-notice');
+  const soldoutTitle = document.getElementById('soldout-title');
+  const soldoutDesc = document.getElementById('soldout-desc');
   const soldoutNextText = document.getElementById('soldout-next-text');
   const capacityCounter = document.getElementById('capacity-counter');
   const scheduleCheckboxFg = document.getElementById('schedule-checkbox-fg');
@@ -1208,6 +1210,13 @@
     if (todayFull) {
       soldoutNotice.style.display = 'block';
       const nextDate = capacityData.nextAvailableDate;
+      if (capacityData.today.beforeLaunch) {
+        soldoutTitle.textContent = '🚧 Les commandes reprennent bientôt !';
+        soldoutDesc.textContent = "Nous ne sommes pas encore prêts à préparer vos Arayes pour l'instant.";
+      } else {
+        soldoutTitle.textContent = '🔥 Complet pour ce soir !';
+        soldoutDesc.textContent = "Désolé, nous sommes victimes de notre succès : il n'y a plus d'Arayes pour ce soir.";
+      }
       soldoutNextText.textContent = nextDate
         ? `Voulez-vous précommander pour ${formatDateLabel(nextDate)} ?`
         : 'Revenez bientôt pour précommander.';
