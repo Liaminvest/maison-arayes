@@ -606,6 +606,13 @@
     }
     .form-send:hover { background: var(--accent-h); color: var(--white); }
     .form-note { text-align: center; font-size: 11px; color: var(--muted); margin-top: 10px; }
+    .retrait-adresse-box {
+      background: var(--bg2);
+      border: 2px solid rgba(242,239,230,0.2);
+      padding: 12px 14px;
+      font-size: 14px; font-weight: 600;
+      color: var(--cream);
+    }
 
     /* ── FOOTER ─────────────────────────────────── */
     footer { padding: 64px 0 40px; border-top: 2px solid var(--white); position: relative; z-index: 2; }
@@ -902,7 +909,7 @@
             <div class="cmd-ic">🏠</div>
             <div>
               <div class="cmd-lbl">Retrait sur place</div>
-              <div class="cmd-val">Gratuit — adresse communiquée à la commande</div>
+              <div class="cmd-val">Gratuit — Rue Pedro-Meylan, Champel</div>
             </div>
           </div>
           <div class="cmd-row">
@@ -1018,6 +1025,12 @@
             <option value="retrait" selected>Retrait sur place (gratuit)</option>
             <option value="livraison">Livraison à domicile</option>
           </select>
+        </div>
+
+        <div class="fg" id="retrait-adresse-fg">
+          <div class="retrait-adresse-box">
+            📍 <strong>Adresse de retrait :</strong> Rue Pedro-Meylan, Champel, Genève
+          </div>
         </div>
 
         <div class="fg" id="cash-pickup-fg">
@@ -1319,11 +1332,13 @@
   const cashPickupFg = document.getElementById('cash-pickup-fg');
   const cashPickupCheckbox = document.getElementById('cash-pickup-checkbox');
   const cashPickupNote = document.getElementById('cash-pickup-note');
+  const retraitAdresseFg = document.getElementById('retrait-adresse-fg');
   modeSelect.addEventListener('change', e => {
     const isRetrait = e.target.value === 'retrait';
     adresseFg.style.display = isRetrait ? 'none' : 'block';
     quartierFg.style.display = isRetrait ? 'none' : 'block';
     quartierWarning.style.display = (!isRetrait && quartierSelect.value === 'autre') ? 'block' : 'none';
+    retraitAdresseFg.style.display = isRetrait ? 'block' : 'none';
     cashPickupFg.style.display = isRetrait ? 'block' : 'none';
     if (!isRetrait) {
       cashPickupCheckbox.checked = false;
