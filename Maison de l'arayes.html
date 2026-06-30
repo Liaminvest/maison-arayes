@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>La Maison de L'Arayes · Méditerranéen · Genève</title>
+  <title>La Maison de L'Arayes · Cuisine Méditerranéenne · Genève</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Permanent+Marker&family=Work+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -347,6 +347,50 @@
       font-size: 10px; font-weight: 600;
       letter-spacing: 0.16em; text-transform: uppercase;
       color: rgba(242,239,230,0.65);
+    }
+
+    /* ── CERTIFICATION CASHER ──────────────────── */
+    .kasher-banner {
+      background: var(--bg2);
+      border-bottom: 2px solid rgba(242,239,230,0.12);
+      padding: 22px 0;
+      position: relative; z-index: 2;
+    }
+    .kasher-inner {
+      display: flex; align-items: center; gap: 24px;
+      flex-wrap: wrap; justify-content: center;
+    }
+    .kasher-seal {
+      width: 72px; height: 72px; flex-shrink: 0;
+      border: 3px solid var(--accent);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; font-weight: 900; color: var(--accent);
+      font-family: serif;
+      position: relative;
+    }
+    .kasher-seal::before {
+      content: '';
+      position: absolute; inset: 4px;
+      border: 1px solid rgba(232,87,43,0.4);
+      border-radius: 50%;
+    }
+    .kasher-body { text-align: center; }
+    .kasher-title {
+      font-family: var(--fn-head);
+      font-size: 15px; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--white); margin-bottom: 4px;
+    }
+    .kasher-sub {
+      font-size: 12px; font-weight: 600;
+      color: var(--muted); letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .kasher-rabbi {
+      font-size: 11px; font-weight: 600;
+      color: rgba(242,239,230,0.5);
+      font-style: italic;
     }
 
     /* ── SECTIONS ───────────────────────────────── */
@@ -740,6 +784,20 @@
   </div>
 </div>
 
+<!-- ── CERTIFICATION CASHER ─────────────────────── -->
+<div class="kasher-banner">
+  <div class="wrap">
+    <div class="kasher-inner">
+      <div class="kasher-seal">כשר</div>
+      <div class="kasher-body">
+        <div class="kasher-title">Casher Bassari · Viande Glatt Halak</div>
+        <div class="kasher-sub">Abattage Loubavitch · Euro Glatt</div>
+        <div class="kasher-rabbi">Sous la supervision du Grand Rabbin Rav Dr. Mikhäel Benadmon · CIG Genève</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── CONCEPT ──────────────────────────────────── -->
 <section class="concept" id="concept">
   <div class="wrap">
@@ -851,7 +909,7 @@
             <div class="cmd-ic">💳</div>
             <div>
               <div class="cmd-lbl">Paiement</div>
-              <div class="cmd-val">Carte en ligne · Twint/Espèces possible sur place pour le retrait</div>
+              <div class="cmd-val">Carte en ligne · Twint/Espèces possibles sur place pour le retrait</div>
             </div>
           </div>
         </div>
