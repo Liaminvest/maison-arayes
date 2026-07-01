@@ -190,7 +190,8 @@ function weekdayOfDateStr(dateStr) {
 async function getOrderCountForDate(dateStr) {
   const result = await pool.query(
     `SELECT COALESCE(SUM(classique + xl), 0) AS total FROM orders
-     WHERE to_char((COALESCE(scheduled_for, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Zurich', 'YYYY-MM-DD') = $1`,
+     WHERE statut != 'annulee'
+     AND to_char((COALESCE(scheduled_for, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Zurich', 'YYYY-MM-DD') = $1`,
     [dateStr]
   );
   return parseInt(result.rows[0].total, 10);
