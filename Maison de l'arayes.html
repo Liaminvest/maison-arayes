@@ -795,7 +795,7 @@
         <div class="strip-lbl">Délai de livraison</div>
       </div>
       <div class="strip-item">
-        <div class="strip-val">Dim–Jeu</div>
+        <div class="strip-val">Dim–Ven</div>
         <div class="strip-lbl">Dim dès 12h30</div>
       </div>
       <div class="strip-item">
@@ -964,7 +964,7 @@
         <div class="fg" id="schedule-datetime-fg" style="display:none;">
           <label>Créneau souhaité</label>
           <select id="schedule-datetime"></select>
-          <p class="form-note" style="margin-top:6px;">Horaires : Dim 12h30–22h · Lun–Jeu 19h–22h · Fermé Ven &amp; Sam</p>
+          <p class="form-note" style="margin-top:6px;">Horaires : Dim 12h30–22h · Lun–Ven 20h–22h · Fermé Sam</p>
         </div>
 
         <div class="fg-row fg">
@@ -1122,8 +1122,8 @@
       <div class="footer-col">
         <h4>Horaires</h4>
         <ul>
-          <li>Dim : 12h30–22h · Lun–Jeu : 19h–22h</li>
-          <li>Vendredi : fermé</li>
+          <li>Dim : 12h30–22h</li>
+          <li>Lun–Ven : 20h–22h</li>
           <li>Samedi : fermé</li>
         </ul>
       </div>
@@ -1166,18 +1166,19 @@
   // Opening hours & scheduled delivery
   const OPENING_HOURS = {
     0: [12, 30, 22, 0],
-    1: [19, 0, 22, 0],
-    2: [19, 0, 22, 0],
-    3: [19, 0, 22, 0],
-    4: [19, 0, 22, 0],
-    5: null,
+    1: [20, 0, 22, 0],
+    2: [20, 0, 22, 0],
+    3: [20, 0, 22, 0],
+    4: [20, 0, 22, 0],
+    5: [20, 0, 22, 0], // Vendredi ouvert à partir du 06/07
     6: null
   };
 
   // Exceptions ponctuelles par date (YYYY-MM-DD) — prennent le dessus sur
   // OPENING_HOURS pour les journées spéciales.
   const SPECIAL_DATE_HOURS = {
-    '2026-07-02': [19, 0, 23, 59] // Journée spéciale, ouverture jusqu'à 00h00
+    '2026-07-02': [19, 0, 23, 59], // Journée spéciale, ouverture jusqu'à 00h00
+    '2026-07-03': null              // Vendredi encore fermé avant le 06/07
   };
 
   function getDayWindow(date) {
@@ -1191,10 +1192,10 @@
   }
 
   // On prend les commandes dès l'ouverture, mais la première livraison a
-  // besoin d'un temps de préparation : les soirs Lun-Jeu (19h), le premier
+  // besoin d'un temps de préparation : les soirs Lun-Ven (20h), le premier
   // créneau de précommande proposé est donc 19h15 — le dimanche (12h30)
   // n'est pas concerné.
-  const FIRST_ORDER_DELAY_MIN = { 0: 0, 1: 15, 2: 15, 3: 15, 4: 15 };
+  const FIRST_ORDER_DELAY_MIN = { 0: 0, 1: 15, 2: 15, 3: 15, 4: 15, 5: 15 };
 
   function getOrderWindow(date) {
     const win = getDayWindow(date);

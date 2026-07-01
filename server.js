@@ -25,7 +25,16 @@ const PROPOSAL_TIMEOUT_MS = 60 * 1000;
 // Capacité de stock : 20 Arayes (Classique + XL) par soir tant que le
 // stock n'est pas entièrement réapprovisionné.
 const DAILY_ORDER_CAPACITY = 20;
-const OPEN_WEEKDAYS = new Set([0, 1, 2, 3, 4]); // Dim-Jeu ouverts, Ven/Sam fermés
+// À partir du 06/07 le vendredi (5) est également ouvert — avant cette date
+// le vendredi reste fermé même si OPEN_WEEKDAYS l'inclut.
+const OPEN_WEEKDAYS = new Set([0, 1, 2, 3, 4, 5]); // Dim-Ven ouverts, Sam fermé
+const FRIDAY_OPEN_FROM = '2026-07-06';
+function isWeekdayOpen(dateStr) {
+  const weekday = weekdayOfDateStr(dateStr);
+  if (!OPEN_WEEKDAYS.has(weekday)) return false;
+  if (weekday === 5 && dateStr < FRIDAY_OPEN_FROM) return false;
+  return true;
+}
 // Reprise des commandes le 1er juillet : la précommande reste possible dès
 // maintenant, mais uniquement pour un créneau à partir de cette date — les
 // commandes immédiates et les créneaux avant le 1er juillet sont bloqués.
@@ -194,8 +203,8 @@ async function findNextAvailableDate(afterDateStr) {
   for (let i = 1; i <= 30; i++) {
     const d = new Date(start);
     d.setUTCDate(d.getUTCDate() + i);
-    if (!OPEN_WEEKDAYS.has(d.getUTCDay())) continue;
     const dateStr = d.toISOString().slice(0, 10);
+    if (!isWeekdayOpen(dateStr)) continue;
     if (isBeforeLaunch(dateStr)) continue;
     const count = await getOrderCountForDate(dateStr);
     if (count < DAILY_ORDER_CAPACITY) return dateStr;
@@ -525,7 +534,7 @@ app.post('/create-checkout-session', async (req, res) => {
     // n'est pas entièrement réapprovisionné : chaque Arayes vendu compte vers
     // la limite, pas chaque commande (5 Arayes dans une commande = 5).
     const serviceDateStr = scheduledFor ? zurichDateStr(new Date(scheduledFor)) : zurichDateStr(new Date());
-    if (!OPEN_WEEKDAYS.has(weekdayOfDateStr(serviceDateStr))) {
+    if (!isWeekdayOpen(serviceDateStr)) {
       return res.status(400).json({ error: 'Nous sommes fermés ce jour-là.' });
     }
     if (isBeforeLaunch(serviceDateStr)) {
@@ -666,7 +675,7 @@ app.get('/avis', (req, res) => {
 app.get('/api/capacity', async (req, res) => {
   try {
     const todayStr = zurichDateStr(new Date());
-    const todayOpen = OPEN_WEEKDAYS.has(weekdayOfDateStr(todayStr));
+    const todayOpen = isWeekdayOpen(todayStr);
     const todayBeforeLaunch = isBeforeLaunch(todayStr);
     const todayCount = todayBeforeLaunch ? 0 : await getOrderCountForDate(todayStr);
     const todayFull = todayBeforeLaunch || (todayOpen && todayCount >= DAILY_ORDER_CAPACITY);
@@ -675,8 +684,8 @@ app.get('/api/capacity', async (req, res) => {
     for (let i = 0; i <= 14; i++) {
       const d = new Date(todayStr + 'T12:00:00Z');
       d.setUTCDate(d.getUTCDate() + i);
-      if (!OPEN_WEEKDAYS.has(d.getUTCDay())) continue;
       const dateStr = d.toISOString().slice(0, 10);
+      if (!isWeekdayOpen(dateStr)) continue;
       const beforeLaunch = isBeforeLaunch(dateStr);
       const count = beforeLaunch ? DAILY_ORDER_CAPACITY : await getOrderCountForDate(dateStr);
       days.push({
