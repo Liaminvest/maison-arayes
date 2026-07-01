@@ -204,10 +204,14 @@ async function findNextAvailableDate(afterDateStr) {
 }
 
 // Combien de commandes sont déjà en file (pas encore prêtes) avant celle-ci.
-async function computeQueueAheadCount(excludeOrderId) {
+// Compter seulement les commandes du MÊME soir — les précommandes d'un
+// autre soir ne partagent pas la même file de cuisine.
+async function computeQueueAheadCount(excludeOrderId, serviceDateStr) {
   const result = await pool.query(
-    "SELECT COUNT(*) FROM orders WHERE statut IN ('nouvelle', 'en_preparation') AND id != $1",
-    [excludeOrderId]
+    `SELECT COUNT(*) FROM orders
+     WHERE statut IN ('nouvelle', 'en_preparation') AND id != $1
+     AND to_char((COALESCE(scheduled_for, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Zurich', 'YYYY-MM-DD') = $2`,
+    [excludeOrderId, serviceDateStr]
   );
   return parseInt(result.rows[0].count, 10);
 }
@@ -218,13 +222,21 @@ function etaMinutesForQueuePosition(positionDansLaQueue) {
   return cyclesAvant * CYCLE_MINUTES;
 }
 
-// Chaque fois qu'une commande passe à 'pret' ou 'livre', la file entière
-// avance d'un cycle : pas de recalcul complexe, juste -9 min pour les autres.
-async function decrementQueueEta(excludeOrderId) {
+// Quand une commande passe à 'pret' ou 'livre', on réduit l'ETA des autres
+// commandes DU MÊME SOIR seulement — une commande terminée aujourd'hui ne
+// doit pas raccourcir l'ETA d'une précommande prévue pour demain.
+async function decrementQueueEta(completedOrderId) {
+  const r = await pool.query('SELECT scheduled_for, created_at FROM orders WHERE id = $1', [completedOrderId]);
+  if (!r.rows.length) return;
+  const row = r.rows[0];
+  const serviceDateStr = row.scheduled_for
+    ? zurichDateStr(new Date(row.scheduled_for))
+    : zurichDateStr(new Date(row.created_at));
   await pool.query(
     `UPDATE orders SET eta_minutes = GREATEST(eta_minutes - ${CYCLE_MINUTES}, ${CYCLE_MINUTES})
-     WHERE statut IN ('nouvelle', 'en_preparation') AND eta_minutes IS NOT NULL AND id != $1`,
-    [excludeOrderId]
+     WHERE statut IN ('nouvelle', 'en_preparation') AND eta_minutes IS NOT NULL AND id != $1
+     AND to_char((COALESCE(scheduled_for, created_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Zurich', 'YYYY-MM-DD') = $2`,
+    [completedOrderId, serviceDateStr]
   );
 }
 
@@ -466,11 +478,19 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
       await pool.query('UPDATE orders SET numero_commande = $1 WHERE id = $2', [numeroCommande, orderId]);
       await logStatusChange(orderId, 'nouvelle');
 
-      // Calcul automatique de l'ETA cuisine dès la création de la commande,
-      // basé sur la position réelle dans la file (2 commandes / cycle de 9 min).
-      const queueAhead = await computeQueueAheadCount(orderId);
+      // ETA cuisine : position dans la file du MÊME soir × 9 min/cycle.
+      // Pour une précommande, eta_set_at = heure du créneau choisi (ex. 19h15)
+      // et non l'heure de commande (ex. 14h00) — sinon "prêt vers 14h09".
+      const etaServiceDateStr = scheduledFor
+        ? zurichDateStr(new Date(scheduledFor))
+        : zurichDateStr(new Date());
+      const queueAhead = await computeQueueAheadCount(orderId, etaServiceDateStr);
       const etaMinutes = etaMinutesForQueuePosition(queueAhead);
-      await pool.query('UPDATE orders SET eta_minutes = $1, eta_set_at = NOW() WHERE id = $2', [etaMinutes, orderId]);
+      const etaSetAt = scheduledFor ? new Date(scheduledFor) : new Date();
+      await pool.query(
+        'UPDATE orders SET eta_minutes = $1, eta_set_at = $2 WHERE id = $3',
+        [etaMinutes, etaSetAt, orderId]
+      );
 
       if (metadata.mode === 'livraison' && metadata.adresse) {
         const coords = await geocodeAddress(metadata.adresse);
