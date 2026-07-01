@@ -313,6 +313,7 @@
     <header class="top">
       <h1>Commandes</h1>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn" id="toggle-today-btn" onclick="toggleToday()">📅 Aujourd'hui</button>
         <button class="btn" id="toggle-delivered-btn" onclick="toggleDelivered()">📦 Anciennes commandes</button>
         <button class="btn btn-gold" onclick="exportCsv()">Exporter en CSV</button>
       </div>
@@ -385,6 +386,7 @@
   let refreshTimer = null;
   let lastOrders = [];
   let showDelivered = false;
+  let showTodayOnly = false;
 
   let audioCtx = null;
   let soundEnabled = false;
@@ -590,6 +592,15 @@
     }
   }
 
+  function toggleToday() {
+    showTodayOnly = !showTodayOnly;
+    const btn = document.getElementById('toggle-today-btn');
+    btn.textContent = showTodayOnly ? '📋 Toutes les commandes' : '📅 Aujourd\'hui';
+    btn.style.background = showTodayOnly ? 'var(--accent)' : '';
+    btn.style.color = showTodayOnly ? 'var(--white)' : '';
+    renderGrid();
+  }
+
   function toggleDelivered() {
     showDelivered = !showDelivered;
     document.getElementById('toggle-delivered-btn').textContent = showDelivered
@@ -598,9 +609,16 @@
     renderGrid();
   }
 
+  function orderServiceDate(o) {
+    const ref = o.scheduled_for ? new Date(o.scheduled_for) : new Date(o.created_at);
+    return ref.toLocaleDateString('en-CA');
+  }
+
   function renderGrid() {
     const grid = document.getElementById('orders-grid');
-    const visibleOrders = showDelivered ? lastOrders : lastOrders.filter(o => o.statut !== 'livre');
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    let visibleOrders = showDelivered ? lastOrders : lastOrders.filter(o => o.statut !== 'livre');
+    if (showTodayOnly) visibleOrders = visibleOrders.filter(o => orderServiceDate(o) === todayStr);
 
     const totalCommandes = visibleOrders.length;
     const totalCA = visibleOrders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
@@ -617,7 +635,8 @@
     `;
 
     if (visibleOrders.length === 0) {
-      grid.innerHTML = `<div class="empty">${showDelivered ? 'Aucune commande livrée pour le moment.' : 'Aucune commande en cours.'}</div>`;
+      const emptyMsg = showTodayOnly ? "Aucune commande pour aujourd'hui." : showDelivered ? 'Aucune commande livrée pour le moment.' : 'Aucune commande en cours.';
+      grid.innerHTML = `<div class="empty">${emptyMsg}</div>`;
       return;
     }
 
