@@ -228,6 +228,9 @@
   .badge.pret { background: #5B3FA0; }
   .badge.en_livraison { background: #2E78D2; }
   .badge.livre { background: #2E9E5B; }
+  .badge.annulee { background: #555; color: var(--muted); }
+  .btn-cancel { border-color: rgba(200,60,60,0.5); color: #e05050; }
+  .btn-cancel:hover { border-color: #e05050; color: #e05050; }
 
   .status-row {
     display: flex;
@@ -340,8 +343,10 @@
     en_preparation: 'En préparation',
     pret: 'Prêt',
     en_livraison: 'En livraison',
-    livre: 'Livré'
+    livre: 'Livré',
+    annulee: 'Annulée'
   };
+  const CANCEL_PIN = '123456';
 
   const OPENING_HOURS = {
     0: [12, 30, 22, 0],
@@ -617,7 +622,9 @@
   function renderGrid() {
     const grid = document.getElementById('orders-grid');
     const todayStr = new Date().toLocaleDateString('en-CA');
-    let visibleOrders = showDelivered ? lastOrders : lastOrders.filter(o => o.statut !== 'livre');
+    let visibleOrders = showDelivered
+      ? lastOrders
+      : lastOrders.filter(o => o.statut !== 'livre' && o.statut !== 'annulee');
     if (showTodayOnly) visibleOrders = visibleOrders.filter(o => orderServiceDate(o) === todayStr);
 
     const totalCommandes = visibleOrders.length;
@@ -711,9 +718,32 @@
           ${etaBlock}
           <div class="order-total">${parseFloat(o.total || 0).toFixed(2)} CHF</div>
           <div class="status-row">${pretBtn}${statusBtns}</div>
+          ${o.statut !== 'annulee' && o.statut !== 'livre'
+            ? `<div class="status-row" style="margin-top:6px;"><button class="status-btn btn-cancel" onclick="annulerCommande(${o.id})">✕ Annuler la commande</button></div>`
+            : ''}
         </div>
       `;
     }).join('');
+  }
+
+  async function annulerCommande(id) {
+    if (!confirm('Annuler cette commande ? Cette action est définitive.')) return;
+    const pin = prompt('Entrez le code de confirmation pour annuler :');
+    if (pin === null) return;
+    if (pin !== CANCEL_PIN) {
+      alert('Code incorrect. Annulation abandonnée.');
+      return;
+    }
+    try {
+      await fetch(`/api/orders/${id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-password': password },
+        body: JSON.stringify({ statut: 'annulee' })
+      });
+      tryFetchOrders(password);
+    } catch (err) {
+      alert("Erreur lors de l'annulation.");
+    }
   }
 
   async function setStatus(id, statut) {

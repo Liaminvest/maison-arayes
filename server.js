@@ -780,7 +780,7 @@ app.post('/api/orders/:id/status', checkAdminOrLivreurPassword, async (req, res)
 
     await pool.query('UPDATE orders SET statut = $1 WHERE id = $2', [statut, req.params.id]);
     await logStatusChange(req.params.id, statut);
-    if (statut === 'pret' || statut === 'livre') {
+    if (statut === 'pret' || statut === 'livre' || statut === 'annulee') {
       await decrementQueueEta(req.params.id);
     }
     res.json({ ok: true });
