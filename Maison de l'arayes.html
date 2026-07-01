@@ -350,6 +350,16 @@
     }
 
     /* ── CERTIFICATION CASHER ──────────────────── */
+    .special-day-banner {
+      background: var(--accent);
+      color: var(--white);
+      text-align: center;
+      padding: 12px 20px;
+      font-family: var(--fn-head);
+      font-size: 15px; letter-spacing: 0.04em;
+      text-transform: uppercase;
+      position: relative; z-index: 2;
+    }
     .kasher-banner {
       background: var(--bg2);
       border-bottom: 2px solid rgba(242,239,230,0.12);
@@ -767,6 +777,11 @@
   </div>
 </section>
 
+<!-- ── BANNIÈRE JOURNÉE SPÉCIALE ────────────────── -->
+<div class="special-day-banner" id="special-day-banner">
+  🔥 <strong>Journée 2 juillet spéciale</strong> — Ouverture exceptionnelle jusqu'à <strong>00h00</strong> !
+</div>
+
 <!-- ── STRIP ────────────────────────────────────── -->
 <div class="strip">
   <div class="wrap">
@@ -1158,8 +1173,15 @@
     6: null
   };
 
+  // Exceptions ponctuelles par date (YYYY-MM-DD) — prennent le dessus sur
+  // OPENING_HOURS pour les journées spéciales.
+  const SPECIAL_DATE_HOURS = {
+    '2026-07-02': [19, 0, 23, 59] // Journée spéciale, ouverture jusqu'à 00h00
+  };
+
   function getDayWindow(date) {
-    const hours = OPENING_HOURS[date.getDay()];
+    const dateStr = date.toLocaleDateString('en-CA');
+    const hours = SPECIAL_DATE_HOURS[dateStr] ?? OPENING_HOURS[date.getDay()];
     if (!hours) return null;
     const [oh, om, ch, cm] = hours;
     const open = new Date(date); open.setHours(oh, om, 0, 0);
@@ -1322,6 +1344,14 @@
   }
 
   initScheduling();
+
+  // Masque le bandeau "journée spéciale" automatiquement après le 2 juillet.
+  (function() {
+    const banner = document.getElementById('special-day-banner');
+    if (!banner) return;
+    const today = new Date().toLocaleDateString('en-CA');
+    if (today !== '2026-07-02') banner.style.display = 'none';
+  })();
 
   // Hide address/quartier when pickup
   const modeSelect = document.getElementById('mode-select');

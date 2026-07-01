@@ -352,8 +352,13 @@
     6: null
   };
 
+  const SPECIAL_DATE_HOURS = {
+    '2026-07-02': [19, 0, 23, 59]
+  };
+
   function getDayWindow(date) {
-    const hours = OPENING_HOURS[date.getDay()];
+    const dateStr = date.toLocaleDateString('en-CA');
+    const hours = SPECIAL_DATE_HOURS[dateStr] ?? OPENING_HOURS[date.getDay()];
     if (!hours) return null;
     const [oh, om, ch, cm] = hours;
     const open = new Date(date); open.setHours(oh, om, 0, 0);
