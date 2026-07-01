@@ -87,6 +87,20 @@
     transition: background 0.2s, color 0.2s;
   }
   #login-screen button:hover, .btn:hover { background: var(--accent-h); color: var(--white); }
+  .date-filter-input {
+    background: var(--bg3);
+    color: var(--white);
+    border: 2px solid var(--white);
+    padding: 10px 14px;
+    font-family: var(--fn-head);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transform: skewX(-6deg);
+    color-scheme: dark;
+  }
+  .date-filter-input:focus { outline: none; border-color: var(--accent); }
+  .date-filter-input.active { border-color: var(--accent); color: var(--accent); }
   #login-error { color: var(--accent); font-size: 14px; min-height: 18px; font-weight: 700; }
 
   /* Dashboard */
@@ -316,7 +330,10 @@
     <header class="top">
       <h1>Commandes</h1>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <button class="btn" id="toggle-today-btn" onclick="toggleToday()">📅 Aujourd'hui</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="date" id="date-filter" class="btn date-filter-input" title="Filtrer par date de commande" />
+          <button class="btn" id="date-filter-clear" onclick="clearDateFilter()" title="Voir toutes les dates" style="display:none;">✕</button>
+        </div>
         <button class="btn" id="toggle-delivered-btn" onclick="toggleDelivered()">📦 Anciennes commandes</button>
         <button class="btn btn-gold" onclick="exportCsv()">Exporter en CSV</button>
       </div>
@@ -392,7 +409,7 @@
   let refreshTimer = null;
   let lastOrders = [];
   let showDelivered = false;
-  let showTodayOnly = false;
+  let filterDate = '';
 
   let audioCtx = null;
   let soundEnabled = false;
@@ -471,6 +488,12 @@
   function showDashboard() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
+    // Pré-remplit le sélecteur de date avec aujourd'hui et branche l'événement.
+    const dateInput = document.getElementById('date-filter');
+    dateInput.value = new Date().toLocaleDateString('en-CA');
+    filterDate = dateInput.value;
+    dateInput.addEventListener('change', handleDateFilter);
+    document.getElementById('date-filter-clear').style.display = 'block';
     if (refreshTimer) clearInterval(refreshTimer);
     fetchLivreurPositions();
     refreshTimer = setInterval(() => {
@@ -598,12 +621,21 @@
     }
   }
 
-  function toggleToday() {
-    showTodayOnly = !showTodayOnly;
-    const btn = document.getElementById('toggle-today-btn');
-    btn.textContent = showTodayOnly ? '📋 Toutes les commandes' : '📅 Aujourd\'hui';
-    btn.style.background = showTodayOnly ? 'var(--accent)' : '';
-    btn.style.color = showTodayOnly ? 'var(--white)' : '';
+  function handleDateFilter() {
+    const input = document.getElementById('date-filter');
+    const clearBtn = document.getElementById('date-filter-clear');
+    filterDate = input.value;
+    input.classList.toggle('active', !!filterDate);
+    clearBtn.style.display = filterDate ? 'block' : 'none';
+    renderGrid();
+  }
+
+  function clearDateFilter() {
+    const input = document.getElementById('date-filter');
+    input.value = '';
+    filterDate = '';
+    input.classList.remove('active');
+    document.getElementById('date-filter-clear').style.display = 'none';
     renderGrid();
   }
 
@@ -626,7 +658,7 @@
     let visibleOrders = showDelivered
       ? lastOrders
       : lastOrders.filter(o => o.statut !== 'livre' && o.statut !== 'annulee');
-    if (showTodayOnly) visibleOrders = visibleOrders.filter(o => orderServiceDate(o) === todayStr);
+    if (filterDate) visibleOrders = visibleOrders.filter(o => orderServiceDate(o) === filterDate);
 
     const totalCommandes = visibleOrders.length;
     const totalCA = visibleOrders.reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
@@ -643,7 +675,7 @@
     `;
 
     if (visibleOrders.length === 0) {
-      const emptyMsg = showTodayOnly ? "Aucune commande pour aujourd'hui." : showDelivered ? 'Aucune commande livrée pour le moment.' : 'Aucune commande en cours.';
+      const emptyMsg = filterDate ? `Aucune commande pour le ${filterDate}.` : showDelivered ? 'Aucune commande livrée pour le moment.' : 'Aucune commande en cours.';
       grid.innerHTML = `<div class="empty">${emptyMsg}</div>`;
       return;
     }
